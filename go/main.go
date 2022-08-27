@@ -459,8 +459,8 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 
 	// 全員プレゼント取得情報更新
 	obtainPresents := make([]*UserPresent, 0)
-	ups := make([]UserPresent, len(normalPresents))
-	histories := make([]UserPresentAllReceivedHistory, len(normalPresents))
+	ups := make([]UserPresent, 0)
+	histories := make([]UserPresentAllReceivedHistory, 0)
 	for _, np := range normalPresents {
 		if _, ok := receivedIDsSet[np.ID]; ok {
 			continue

@@ -1453,7 +1453,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	// 配布処理
 	cards := []UserCard{}
 	items := []UserItem{}
-	updateIsuCoins := []UpdateIcuCoin{}
+	// updateIsuCoins := []UpdateIcuCoin{}
 	for i := range obtainPresent {
 		obtainPresent[i].UpdatedAt = requestAt
 		obtainPresent[i].DeletedAt = &requestAt
@@ -1462,9 +1462,11 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		// TODO: 5N+1くらいになってる
 		switch v.ItemType {
 		case 1: // coin
-			var updateIsuCoin UpdateIcuCoin
-			updateIsuCoin, _, err = h.obtainItem1(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
-			updateIsuCoins = append(updateIsuCoins, updateIsuCoin)
+			// var updateIsuCoin UpdateIcuCoin
+			// updateIsuCoin, _, err = h.obtainItem1(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+			// updateIsuCoins = append(updateIsuCoins, updateIsuCoin)
+
+			_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
 		case 2: // card(ハンマー)
 			itemMaster := ItemMaster{}
 			exist := false

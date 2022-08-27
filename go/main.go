@@ -1424,8 +1424,6 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		v := obtainPresent[i]
 
 		// TODO: 5N+1くらいになってる
-
-		_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
 		switch v.ItemType {
 		case 1: // coin
 			_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)

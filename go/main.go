@@ -460,7 +460,7 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 	}
 
 	receivedIDs := make([]int64, 0, len(normalPresents))
-	query, args, err := sqlx.In("SELECT `id` FROM user_present_all_received_history WHERE user_id=? AND present_all_id IN (?)", userID, normalPresentsIDs)
+	query, args, err := sqlx.In("SELECT `present_all_id` FROM user_present_all_received_history WHERE user_id=? AND present_all_id IN (?)", userID, normalPresentsIDs)
 	if err != nil {
 		return nil, err
 	}

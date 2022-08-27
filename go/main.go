@@ -655,20 +655,20 @@ type UpdateIcuCoin struct {
 	IsuCoin int64 `json:"isu_coin" db:"isu_coin"`
 }
 
-func (h *Handler) obtainItem1(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64) (UpdateIcuCoin, int64, error) {
+func (h *Handler) obtainItem1(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64) (User, int64, error) {
 	// coin
 	user := new(User)
 	query := "SELECT * FROM users WHERE id=?"
 	if err := tx.Get(user, query, userID); err != nil {
 		if err == sql.ErrNoRows {
-			return UpdateIcuCoin{}, 0, ErrUserNotFound
+			return User{}, 0, ErrUserNotFound
 		}
-		return UpdateIcuCoin{}, 0, err
+		return User{}, 0, err
 	}
 
 	totalCoin := user.IsuCoin + obtainAmount
 
-	return UpdateIcuCoin{ID: user.ID, IsuCoin: totalCoin}, obtainAmount, nil
+	return User{ID: user.ID, IsuCoin: totalCoin}, obtainAmount, nil
 }
 
 // obtainItem アイテム付与処理
@@ -1463,7 +1463,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	// 配布処理
 	cards := []UserCard{}
 	items := []UserItem{}
-	updateIsuCoins := []UpdateIcuCoin{}
+	updateIsuCoins := []User{}
 	for i := range obtainPresent {
 		obtainPresent[i].UpdatedAt = requestAt
 		obtainPresent[i].DeletedAt = &requestAt
@@ -1472,7 +1472,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		// TODO: 5N+1くらいになってる
 		switch v.ItemType {
 		case 1: // coin
-			var updateIsuCoin UpdateIcuCoin
+			var updateIsuCoin User
 			updateIsuCoin, _, err = h.obtainItem1(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
 			updateIsuCoins = append(updateIsuCoins, updateIsuCoin)
 		case 2: // card(ハンマー)

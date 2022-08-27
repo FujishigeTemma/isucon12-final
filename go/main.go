@@ -275,6 +275,7 @@ func (h *Handler) checkOneTimeToken(token string, tokenType int, requestAt int64
 }
 
 // checkViewerID
+// 存在チェック
 func (h *Handler) checkViewerID(userID int64, viewerID string) error {
 	query := "SELECT * FROM user_devices WHERE user_id=? AND platform_id=?"
 	device := new(UserDevice)
@@ -362,6 +363,7 @@ func isCompleteTodayLogin(lastActivatedAt, requestAt time.Time) bool {
 func (h *Handler) obtainLoginBonus(tx *sqlx.Tx, userID int64, requestAt int64) ([]*UserLoginBonus, error) {
 	// login bonus masterから有効なログインボーナスを取得
 	loginBonuses := make([]*LoginBonusMaster, 0)
+	// TODO: index
 	query := "SELECT * FROM login_bonus_masters WHERE start_at <= ? AND end_at >= ?"
 	if err := tx.Select(&loginBonuses, query, requestAt, requestAt); err != nil {
 		return nil, err
@@ -373,6 +375,7 @@ func (h *Handler) obtainLoginBonus(tx *sqlx.Tx, userID int64, requestAt int64) (
 		initBonus := false
 		// ボーナスの進捗取得
 		userBonus := new(UserLoginBonus)
+		// TODO: N+1
 		query = "SELECT * FROM user_login_bonuses WHERE user_id=? AND login_bonus_id=?"
 		if err := tx.Get(userBonus, query, userID, bonus.ID); err != nil {
 			if err != sql.ErrNoRows {
@@ -455,6 +458,7 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 	obtainPresents := make([]*UserPresent, 0)
 	for _, np := range normalPresents {
 		received := new(UserPresentAllReceivedHistory)
+		// TODO: N+1
 		query = "SELECT * FROM user_present_all_received_history WHERE user_id=? AND present_all_id=?"
 		err := tx.Get(received, query, userID, np.ID)
 		if err == nil {
@@ -481,12 +485,14 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 			CreatedAt:      requestAt,
 			UpdatedAt:      requestAt,
 		}
+		// TODO: N+1
 		query = "INSERT INTO user_presents(id, user_id, sent_at, item_type, item_id, amount, present_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
 		if _, err := tx.Exec(query, up.ID, up.UserID, up.SentAt, up.ItemType, up.ItemID, up.Amount, up.PresentMessage, up.CreatedAt, up.UpdatedAt); err != nil {
 			return nil, err
 		}
 
 		// historyに入れる
+		// TODO: N+1
 		phID, err := h.generateID()
 		if err != nil {
 			return nil, err
@@ -499,6 +505,7 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 			CreatedAt:    requestAt,
 			UpdatedAt:    requestAt,
 		}
+		// TODO: N+1
 		query = "INSERT INTO user_present_all_received_history(id, user_id, present_all_id, received_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
 		if _, err := tx.Exec(
 			query,
@@ -746,6 +753,7 @@ func (h *Handler) createUser(c echo.Context) error {
 			CreatedAt:    requestAt,
 			UpdatedAt:    requestAt,
 		}
+		// TODO: bulk(3回しかたたかれてない)
 		query = "INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
 		if _, err := tx.Exec(query, card.ID, card.UserID, card.CardID, card.AmountPerSec, card.Level, card.TotalExp, card.CreatedAt, card.UpdatedAt); err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
@@ -1324,12 +1332,14 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		obtainPresent[i].UpdatedAt = requestAt
 		obtainPresent[i].DeletedAt = &requestAt
 		v := obtainPresent[i]
+		// TODO: N+1
 		query = "UPDATE user_presents SET deleted_at=?, updated_at=? WHERE id=?"
 		_, err := tx.Exec(query, requestAt, requestAt, v.ID)
 		if err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 
+		// TODO: 5N+1くらいになってる
 		_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
 		if err != nil {
 			if err == ErrUserNotFound || err == ErrItemNotFound {
@@ -1505,6 +1515,7 @@ func (h *Handler) addExpToCard(c echo.Context) error {
 	`
 	for _, v := range req.Items {
 		item := new(ConsumeUserItemData)
+		// TODO: N+1
 		if err = h.DB.Get(item, query, v.ID, userID); err != nil {
 			if err == sql.ErrNoRows {
 				return errorResponse(c, http.StatusNotFound, err)
@@ -1552,6 +1563,7 @@ func (h *Handler) addExpToCard(c echo.Context) error {
 
 	query = "UPDATE user_items SET amount=?, updated_at=? WHERE id=?"
 	for _, v := range items {
+		// TODO: N+1
 		if _, err = tx.Exec(query, v.Amount-v.ConsumeAmount, requestAt, v.ID); err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
@@ -1913,6 +1925,7 @@ func noContentResponse(c echo.Context, status int) error {
 }
 
 // generateID uniqueなIDを生成する
+// TODO: 重そう
 func (h *Handler) generateID() (int64, error) {
 	var updateErr error
 	for i := 0; i < 100; i++ {

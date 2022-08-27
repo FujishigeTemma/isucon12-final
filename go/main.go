@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"math/rand"
 	"net/http"
@@ -508,17 +507,18 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 		obtainPresents = append(obtainPresents, &up)
 	}
 
-	queryUp := "INSERT INTO user_presents(id, user_id, sent_at, item_type, item_id, amount, present_message, created_at, updated_at) VALUES (:id, :user_id, :sent_at, :item_type, :item_id, :amount, :present_message, :created_at, :updated_at)"
-	log.Printf("ups: %v", ups)
-	_, err = tx.NamedExec(queryUp, ups)
-	if err != nil {
-		return nil, err
-	}
+	if len(ups) != 0 {
+		queryUp := "INSERT INTO user_presents(id, user_id, sent_at, item_type, item_id, amount, present_message, created_at, updated_at) VALUES (:id, :user_id, :sent_at, :item_type, :item_id, :amount, :present_message, :created_at, :updated_at)"
+		_, err = tx.NamedExec(queryUp, ups)
+		if err != nil {
+			return nil, err
+		}
 
-	queryHistory := "INSERT INTO user_present_all_received_history(user_id, present_all_id, received_at, created_at, updated_at) VALUES (:user_id, :present_all_id, :received_at, :created_at, :updated_at)"
-	_, err = tx.NamedExec(queryHistory, histories)
-	if err != nil {
-		return nil, err
+		queryHistory := "INSERT INTO user_present_all_received_history(user_id, present_all_id, received_at, created_at, updated_at) VALUES (:user_id, :present_all_id, :received_at, :created_at, :updated_at)"
+		_, err = tx.NamedExec(queryHistory, histories)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return obtainPresents, nil
@@ -1933,7 +1933,6 @@ func noContentResponse(c echo.Context, status int) error {
 func (h *Handler) generateID() (int64, error) {
 	nextBase := atomic.AddInt64(&nextBaseID, 1)
 	nextID := nextBase*10 + int64(serverNum)
-	log.Printf("nextID: %v", nextID)
 	return nextID, nil
 }
 

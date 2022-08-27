@@ -224,10 +224,10 @@ func (h *Handler) apiMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		c.Set("requestTime", requestAt.Unix())
 
 		masterVersionRWM.RLock()
+		defer masterVersionRWM.RUnlock()
 		if masterVersion.MasterVersion != c.Request().Header.Get("x-master-version") {
 			return errorResponse(c, http.StatusUnprocessableEntity, ErrInvalidMasterVersion)
 		}
-		masterVersionRWM.RUnlock()
 
 		// check ban
 		userID, err := getUserID(c)

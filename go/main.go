@@ -464,7 +464,7 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.Select(&receivedIDs, query, args); err != nil && err != sql.ErrNoRows {
+	if err := tx.Select(&receivedIDs, query, args...); err != nil && err != sql.ErrNoRows {
 		return nil, err
 	}
 	receivedIDsSet := make(map[int64]struct{}, len(receivedIDs))

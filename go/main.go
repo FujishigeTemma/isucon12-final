@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"math/rand"
 	"net/http"
@@ -1440,6 +1441,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	if err = tx.Select(&itemMasters, query, params...); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
+	log.Printf("ids: %v, masters: %v", itemIDs, itemMasters)
 
 	// 配布処理
 	cards := []UserCard{}

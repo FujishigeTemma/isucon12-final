@@ -1985,7 +1985,7 @@ func (h *Handler) addExpToCard(c echo.Context) error {
 	items := make([]*ConsumeUserItemData, 0)
 	uis := make([]*UserItem, 0)
 
-	itemids := make([]int64, len(req.Items), 0)
+	itemids := make([]int64, 0, len(req.Items))
 	for i := range req.Items {
 		itemids = append(itemids, req.Items[i].ID)
 	}

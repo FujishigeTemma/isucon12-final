@@ -2356,7 +2356,7 @@ func (h *Handler) home(c echo.Context) error {
 	// 装備情報
 	deck, ok := userDeckCache.Get(strconv.Itoa(int(userID)))
 	if !ok {
-		return errorResponse(c, http.StatusInternalServerError, err)
+		errorResponse(c, http.StatusNotFound, fmt.Errorf("aaaa"))
 	}
 
 	// 生産性

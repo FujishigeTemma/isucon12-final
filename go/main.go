@@ -128,12 +128,12 @@ func main() {
 	{
 		// マスタ確認
 		query := "SELECT * FROM version_masters WHERE status=1"
-		if err := dbx.Get(masterVersion, query); err != nil && err != sql.ErrNoRows {
+		if err := dbx1.Get(masterVersion, query); err != nil && err != sql.ErrNoRows {
 			e.Logger.Fatalf("failed to read master vesrion: %w", err)
 		}
 		var sessions []Session
 		query = "SELECT * FROM user_sessions WHERE deleted_at IS NULL"
-		if err := dbx.Select(&sessions, query); err != nil {
+		if err := dbx1.Select(&sessions, query); err != nil {
 			e.Logger.Fatalf("failed to read sessions: %w", err)
 		}
 		for i := range sessions {
@@ -834,7 +834,7 @@ func initialize(c echo.Context) error {
 	{
 		// マスタ確認
 		query := "SELECT * FROM version_masters WHERE status=1"
-		if err := dbx.Get(masterVersion, query); err != nil {
+		if err := dbx1.Get(masterVersion, query); err != nil {
 			if err == sql.ErrNoRows {
 				return errorResponse(c, http.StatusNotFound, fmt.Errorf("active master version is not found"))
 			}
@@ -843,7 +843,7 @@ func initialize(c echo.Context) error {
 		// userSession
 		var sessions []Session
 		query = "SELECT * FROM user_sessions WHERE deleted_at IS NULL"
-		if err := dbx.Select(&sessions, query); err != nil {
+		if err := dbx1.Select(&sessions, query); err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 		userSessions.Clear()

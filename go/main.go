@@ -40,7 +40,7 @@ var (
 	ErrForbidden                error = fmt.Errorf("forbidden")
 	ErrGeneratePassword         error = fmt.Errorf("failed to password hash") //nolint:deadcode
 
-	nextBaseID int64 = 100_000
+	nextBaseID int64 = 100000000000
 	serverNum  int   = 1
 )
 

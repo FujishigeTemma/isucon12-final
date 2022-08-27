@@ -1647,15 +1647,16 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		switch v.ItemType {
 		case 1: // coin
 			exist := false
+			userE := User{}
 			for j := range usersExists {
 				if usersExists[j].ID == v.UserID {
 					exist = true
+					userE = usersExists[j]
 				}
 			}
 			if exist {
-				var updateIsuCoin User
-				updateIsuCoin, _, err = h.obtainItem1(tx1, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
-				updateIsuCoins = append(updateIsuCoins, updateIsuCoin)
+				// updateIsuCoin, _, err = h.obtainItem1(tx1, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+				updateIsuCoins = append(updateIsuCoins, User{ID: v.UserID, IsuCoin: userE.IsuCoin + int64(v.Amount)})
 			} else {
 				err = ErrUserNotFound
 			}

@@ -68,10 +68,10 @@ func initializeUserDeckCache(h *Handler) {
 	decks := []UserDeck{}
 	query := "SELECT * FROM user_decks WHERE deleted_at IS NULL"
 	if err := h.DB.Select(&decks, query); err != nil {
-		log.Fatalln(err)
+		log.Panicln(err)
 	}
 	for i := range decks {
-		userDeckCache.Set(strconv.Itoa(int(decks[i].UserID)), decks[i])
+		userDeckCache.Set(strconv.FormatInt(decks[i].UserID, 10), decks[i])
 	}
 }
 
@@ -999,7 +999,6 @@ func (h *Handler) createUser(c echo.Context) error {
 	if _, err := tx.Exec(query, initDeck.ID, initDeck.UserID, initDeck.CardID1, initDeck.CardID2, initDeck.CardID3, initDeck.CreatedAt, initDeck.UpdatedAt); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
-	userDeckCache.Set(strconv.Itoa(int(user.ID)), *initDeck)
 
 	txPresent, err := h.PresentDB.Beginx()
 	if err != nil {
@@ -1051,6 +1050,7 @@ func (h *Handler) createUser(c echo.Context) error {
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
+	userDeckCache.Set(strconv.FormatInt(user.ID, 10), *initDeck)
 	err = txPresent.Commit()
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err) // 起きたら本当はtxをrollbackする必要あり
@@ -2143,7 +2143,7 @@ func (h *Handler) updateDeck(c echo.Context) error {
 	if _, err = tx.Exec(query, requestAt, requestAt, userID); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
-	userDeckCache.Remove(strconv.Itoa(int(userID)))
+	userDeckCache.Remove(strconv.FormatInt(userID, 10))
 
 	udID, err := h.generateID()
 	if err != nil {
@@ -2167,6 +2167,7 @@ func (h *Handler) updateDeck(c echo.Context) error {
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
+	userDeckCache.Set(strconv.FormatInt(userID, 10), *newDeck)
 
 	return successResponse(c, &UpdateDeckResponse{
 		UpdatedResources: makeUpdatedResources(requestAt, nil, nil, nil, []*UserDeck{newDeck}, nil, nil, nil),
@@ -2220,7 +2221,7 @@ func (h *Handler) reward(c echo.Context) error {
 	}
 
 	// 使っているデッキの取得
-	deck, ok := userDeckCache.Get(strconv.Itoa(int(userID)))
+	deck, ok := userDeckCache.Get(strconv.FormatInt(user.ID, 10))
 	if !ok {
 		return errorResponse(c, http.StatusNotFound, err)
 	}
@@ -2274,14 +2275,11 @@ func (h *Handler) home(c echo.Context) error {
 	}
 
 	// 装備情報
-	deck, ok := userDeckCache.Get(strconv.Itoa(int(userID)))
-	if !ok {
-		errorResponse(c, http.StatusNotFound, fmt.Errorf("aaaa"))
-	}
+	deck, ok := userDeckCache.Get(strconv.FormatInt(userID, 10))
 
 	// 生産性
 	cards := make([]*UserCard, 0)
-	if true {
+	if ok {
 		cardIds := []int64{deck.CardID1, deck.CardID2, deck.CardID3}
 		query, params, err := sqlx.In("SELECT * FROM user_cards WHERE id IN (?)", cardIds)
 		if err != nil {

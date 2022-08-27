@@ -1246,10 +1246,11 @@ func (h *Handler) listPresent(c echo.Context) error {
 	isNext := false
 	if len(presentList) > PresentCountPerPage {
 		isNext = true
+		presentList = presentList[:PresentCountPerPage]
 	}
 
 	return successResponse(c, &ListPresentResponse{
-		Presents: presentList[:PresentCountPerPage],
+		Presents: presentList,
 		IsNext:   isNext,
 	})
 }

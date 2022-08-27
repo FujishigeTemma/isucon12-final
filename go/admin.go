@@ -256,7 +256,7 @@ func (h *Handler) adminUpdateMaster(c echo.Context) error {
 				if err != nil {
 					return errorResponse(c, http.StatusInternalServerError, err)
 				}
-				masterVersion = VersionMaster{
+				masterVersion = &VersionMaster{
 					ID:            int64(id),
 					Status:        1,
 					MasterVersion: data[i]["master_version"].(string),

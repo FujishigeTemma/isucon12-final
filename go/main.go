@@ -1957,7 +1957,7 @@ func (h *Handler) addExpToCard(c echo.Context) error {
 	masterDBRWM.RLock()
 	defer masterDBRWM.RUnlock()
 	var im ItemMaster
-	if err = h.MasterDB.Get(&im, "SELECT * FROM item_masters WHERE id=?", cardID); err != nil {
+	if err = h.MasterDB.Get(&im, "SELECT * FROM item_masters WHERE id=?", uc.CardID); err != nil {
 		if err == sql.ErrNoRows {
 			return errorResponse(c, http.StatusNotFound, err)
 		}

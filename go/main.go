@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	cmap "github.com/orcaman/concurrent-map/v2"
 	"io"
 	"math"
 	"math/rand"
@@ -16,6 +15,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	cmap "github.com/orcaman/concurrent-map/v2"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
@@ -131,6 +132,7 @@ func main() {
 		if err := dbx1.Get(masterVersion, query); err != nil && err != sql.ErrNoRows {
 			e.Logger.Fatalf("failed to read master vesrion: %w", err)
 		}
+
 		var sessions []Session
 		query = "SELECT * FROM user_sessions WHERE deleted_at IS NULL"
 		if err := dbx1.Select(&sessions, query); err != nil {
@@ -138,6 +140,14 @@ func main() {
 		}
 		for i := range sessions {
 			userSessions.Set(sessions[i].SessionID, sessions[i])
+		}
+
+		var userDevices []UserDevice
+		query = "SELECT * FROM user_devices"
+		if err := dbx1.Select(&userDevices, query); err != nil {
+		}
+		for i := range userDevices {
+			userDevicesSet.Set(getUserDevicesKey(userDevices[i].UserID, userDevices[i].PlatformID), struct{}{})
 		}
 	}
 
@@ -323,18 +333,19 @@ func (h *Handler) checkOneTimeToken(token string, tokenType int, requestAt int64
 	return nil
 }
 
+var userDevicesSet = cmap.New[struct{}]()
+
+func getUserDevicesKey(userID int64, viewerID string) string {
+	return strconv.FormatInt(userID, 16) + viewerID
+}
+
 // checkViewerID
 // 存在チェック
 func (h *Handler) checkViewerID(userID int64, viewerID string) error {
-	query := "SELECT * FROM user_devices WHERE user_id=? AND platform_id=?"
-	device := new(UserDevice)
-	if err := h.DB.Get(device, query, userID, viewerID); err != nil {
-		if err == sql.ErrNoRows {
-			return ErrUserDeviceNotFound
-		}
-		return err
+	key := getUserDevicesKey(userID, viewerID)
+	if !userDevicesSet.Has(key) {
+		return ErrUserDeviceNotFound
 	}
-
 	return nil
 }
 
@@ -827,6 +838,7 @@ func initialize(c echo.Context) error {
 			}
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
+
 		// userSession
 		var sessions []Session
 		query = "SELECT * FROM user_sessions WHERE deleted_at IS NULL"
@@ -836,6 +848,15 @@ func initialize(c echo.Context) error {
 		userSessions.Clear()
 		for i := range sessions {
 			userSessions.Set(sessions[i].SessionID, sessions[i])
+		}
+
+		var userDevices []UserDevice
+		query = "SELECT * FROM user_devices"
+		if err := dbx1.Select(&userDevices, query); err != nil {
+		}
+		userDevicesSet.Clear()
+		for i := range userDevices {
+			userDevicesSet.Set(getUserDevicesKey(userDevices[i].UserID, userDevices[i].PlatformID), struct{}{})
 		}
 	}
 
@@ -1007,6 +1028,7 @@ func (h *Handler) createUser(c echo.Context) error {
 		}
 	}()
 
+	userDevicesSet.Set(getUserDevicesKey(user.ID, req.ViewerID), struct{}{})
 	err = tx.Commit()
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)

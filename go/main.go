@@ -439,19 +439,29 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 		return nil, err
 	}
 
+	normalPresentsIDs := make([]int64, len(normalPresents))
+	for i := range normalPresents {
+		normalPresentsIDs[i] = normalPresents[i].ID
+	}
+
+	receivedIDs := make([]int64, 0, len(normalPresents))
+	query, args, err := sqlx.In("SELECT `present_all_id` FROM user_present_all_received_history WHERE user_id=? AND present_all_id IN (?)", userID, normalPresentsIDs)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Select(&receivedIDs, query, args...); err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	receivedIDsSet := make(map[int64]struct{}, len(receivedIDs))
+	for i := range receivedIDs {
+		receivedIDsSet[receivedIDs[i]] = struct{}{}
+	}
+
 	// 全員プレゼント取得情報更新
 	obtainPresents := make([]*UserPresent, 0)
 	for _, np := range normalPresents {
-		received := new(UserPresentAllReceivedHistory)
-		// TODO: N+1
-		query = "SELECT * FROM user_present_all_received_history WHERE user_id=? AND present_all_id=?"
-		err := tx.Get(received, query, userID, np.ID)
-		if err == nil {
-			// プレゼント配布済
+		if _, ok := receivedIDsSet[np.ID]; ok {
 			continue
-		}
-		if err != sql.ErrNoRows {
-			return nil, err
 		}
 
 		// user present boxに入れる

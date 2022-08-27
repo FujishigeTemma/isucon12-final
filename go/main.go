@@ -72,6 +72,16 @@ func main() {
 	}
 	defer dbx.Close()
 
+	dbx.SetMaxIdleConns(1024) // デフォルトだと2
+	dbx.SetConnMaxLifetime(0) // 一応セット
+	dbx.SetConnMaxIdleTime(0) // 一応セット go1.15以上
+
+	// 問題の切り分け用
+	http.DefaultTransport.(*http.Transport).MaxIdleConns = 0           // 無制限
+	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = 1024 // 0にすると2になっちゃう
+	http.DefaultTransport.(*http.Transport).ForceAttemptHTTP2 = true   // go1.13以上
+	http.DefaultClient.Timeout = 5 * time.Second
+
 	// setting server
 	e.Server.Addr = fmt.Sprintf(":%v", "8080")
 	h := &Handler{
@@ -116,7 +126,7 @@ func main() {
 
 func connectDB(batch bool) (*sqlx.DB, error) {
 	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=%s&multiStatements=%t",
+		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=%s&multiStatements=%t&interpolateParams=true",
 		getEnv("ISUCON_DB_USER", "isucon"),
 		getEnv("ISUCON_DB_PASSWORD", "isucon"),
 		getEnv("ISUCON_DB_HOST", "127.0.0.1"),

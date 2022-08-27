@@ -426,19 +426,30 @@ func (h *Handler) obtainLoginBonus(tx *sqlx.Tx, userID int64, requestAt int64) (
 	if err := tx.Select(&loginBonuses, query, requestAt, requestAt); err != nil {
 		return nil, err
 	}
+	bonusIDs := make([]int64, len(loginBonuses))
+	for i := range loginBonuses {
+		bonusIDs[i] = loginBonuses[i].ID
+	}
+
+	userBonuses := make([]*UserLoginBonus, 0, len(loginBonuses))
+	query, args, err := sqlx.In("SELECT * FROM user_login_bonuses WHERE user_id=? AND login_bonus_id IN (?)", userID, bonusIDs)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Select(&userBonuses, query, args...); err != nil {
+		return nil, err
+	}
+	userBonusesMap := make(map[int64]*UserLoginBonus, len(userBonuses))
+	for i := range userBonuses {
+		userBonusesMap[userBonuses[i].LoginBonusID] = userBonuses[i]
+	}
 
 	sendLoginBonuses := make([]*UserLoginBonus, 0)
-
 	for _, bonus := range loginBonuses {
 		initBonus := false
-		// ボーナスの進捗取得
-		userBonus := new(UserLoginBonus)
-		// TODO: N+1
-		query = "SELECT * FROM user_login_bonuses WHERE user_id=? AND login_bonus_id=?"
-		if err := tx.Get(userBonus, query, userID, bonus.ID); err != nil {
-			if err != sql.ErrNoRows {
-				return nil, err
-			}
+
+		userBonus, ok := userBonusesMap[bonus.ID]
+		if !ok {
 			initBonus = true
 
 			ubID, err := h.generateID()
@@ -924,12 +935,13 @@ func (h *Handler) createUser(c echo.Context) error {
 	}
 
 	initCards := make([]*UserCard, 0, 3)
+	cards := []UserCard{}
 	for i := 0; i < 3; i++ {
 		cID, err := h.generateID()
 		if err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
-		card := &UserCard{
+		card := UserCard{
 			ID:           cID,
 			UserID:       user.ID,
 			CardID:       initCard.ID,
@@ -939,12 +951,14 @@ func (h *Handler) createUser(c echo.Context) error {
 			CreatedAt:    requestAt,
 			UpdatedAt:    requestAt,
 		}
+		cards = append(cards, card)
 		// TODO: bulk(3回しかたたかれてない)
-		query = "INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-		if _, err := tx.Exec(query, card.ID, card.UserID, card.CardID, card.AmountPerSec, card.Level, card.TotalExp, card.CreatedAt, card.UpdatedAt); err != nil {
-			return errorResponse(c, http.StatusInternalServerError, err)
-		}
-		initCards = append(initCards, card)
+		initCards = append(initCards, &card)
+	}
+
+	query = "INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES (:id, :user_id, :card_id, :amount_per_sec, :level, :total_exp, :created_at, :updated_at)"
+	if _, err := tx.NamedExec(query, cards); err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
 	deckID, err := h.generateID()
@@ -1951,10 +1965,10 @@ func (h *Handler) addExpToCard(c echo.Context) error {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
-	query = "UPDATE user_items SET amount=?, updated_at=? WHERE id=?"
-	for _, v := range items {
-		// TODO: N+1
-		if _, err = tx.Exec(query, v.Amount-v.ConsumeAmount, requestAt, v.ID); err != nil {
+	if len(items) != 0 {
+		queryItems := "INSERT INTO user_items(id, user_id, item_id, item_type, amount, created_at, updated_at) VALUES (:id, :user_id, :item_id, :item_type, :amount, :created_at, :updated_at) ON DUPLICATE KEY UPDATE amount = VALUES(amount), updated_at = VALUES(updated_at);"
+		_, err = tx.NamedExec(queryItems, items)
+		if err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 	}

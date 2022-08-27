@@ -135,7 +135,7 @@ CREATE TABLE `user_present_all_received_history` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE `user_presents` (
-  `id` bigint NOT NULL,
+  `id` bigint NOT NULL AUTO_INCREMENT,
   `user_id` bigint NOT NULL comment 'ユーザID',
   `sent_at` bigint NOT NULL comment 'プレゼント送付日時',
   `item_type` int(1) NOT NULL comment 'アイテム種別',

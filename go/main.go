@@ -907,7 +907,7 @@ func (h *Handler) createUser(c echo.Context) error {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
-	txPresent, err := h.DB.Beginx()
+	txPresent, err := h.PresentDB.Beginx()
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
@@ -1072,7 +1072,7 @@ func (h *Handler) login(c echo.Context) error {
 		})
 	}
 
-	txPresent, err := h.DB.Beginx()
+	txPresent, err := h.PresentDB.Beginx()
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
@@ -1418,8 +1418,6 @@ func (h *Handler) listPresent(c echo.Context) error {
 	if err = h.PresentDB.Get(&presentCount, "SELECT COUNT(*) FROM user_presents WHERE user_id = ? AND deleted_at IS NULL", userID); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
-
-	c.Logger().Print(presentCount, len(presentList), presentList)
 
 	isNext := false
 	if presentCount > (offset + PresentCountPerPage) {

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 	"golang.org/x/crypto/bcrypt"
@@ -161,40 +162,43 @@ func (h *Handler) adminLogout(c echo.Context) error {
 // adminListMaster マスタデータ閲覧
 // GET /admin/master
 func (h *Handler) adminListMaster(c echo.Context) error {
+	masterDBRWM.RLock()
+	defer masterDBRWM.RUnlock()
+
 	masterVersions := make([]*VersionMaster, 0)
-	if err := h.DB.Select(&masterVersions, "SELECT * FROM version_masters"); err != nil {
+	if err := h.MasterDB.Select(&masterVersions, "SELECT * FROM version_masters"); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
 	items := make([]*ItemMaster, 0)
-	if err := h.DB.Select(&items, "SELECT * FROM item_masters"); err != nil {
+	if err := h.MasterDB.Select(&items, "SELECT * FROM item_masters"); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
 	gachas := make([]*GachaMaster, 0)
-	if err := h.DB.Select(&gachas, "SELECT * FROM gacha_masters"); err != nil {
+	if err := h.MasterDB.Select(&gachas, "SELECT * FROM gacha_masters"); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
 	gachaItems := make([]*GachaItemMaster, 0)
-	if err := h.DB.Select(&gachaItems, "SELECT * FROM gacha_item_masters"); err != nil {
+	if err := h.MasterDB.Select(&gachaItems, "SELECT * FROM gacha_item_masters"); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
 	presentAlls := make([]*PresentAllMaster, 0)
-	if err := h.DB.Select(&presentAlls, "SELECT * FROM present_all_masters"); err != nil {
+	if err := h.MasterDB.Select(&presentAlls, "SELECT * FROM present_all_masters"); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 
 	}
 
 	loginBonuses := make([]*LoginBonusMaster, 0)
-	if err := h.DB.Select(&loginBonuses, "SELECT * FROM login_bonus_masters"); err != nil {
+	if err := h.MasterDB.Select(&loginBonuses, "SELECT * FROM login_bonus_masters"); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 
 	}
 
 	loginBonusRewards := make([]*LoginBonusRewardMaster, 0)
-	if err := h.DB.Select(&loginBonusRewards, "SELECT * FROM login_bonus_reward_masters"); err != nil {
+	if err := h.MasterDB.Select(&loginBonusRewards, "SELECT * FROM login_bonus_reward_masters"); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
@@ -219,11 +223,16 @@ type AdminListMasterResponse struct {
 	LoginBonuses      []*LoginBonusMaster       `json:"loginBonuses"`
 }
 
+var masterDBRWM = sync.RWMutex{}
+
 // adminUpdateMaster マスタデータ更新
 // PUT /admin/master
 func (h *Handler) adminUpdateMaster(c echo.Context) error {
-	// TODO: ここクエリ全部並列化していい
-	tx, err := h.DB.Beginx()
+	masterDBRWM.Lock()
+	defer masterDBRWM.Unlock()
+
+	// TODO: ここクエリ全部並列化していい(ほぼ叩かれてない)
+	tx, err := h.MasterDB.Beginx()
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}

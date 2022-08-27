@@ -57,6 +57,7 @@ const (
 
 type Handler struct {
 	DB        *sqlx.DB
+	MasterDB  *sqlx.DB
 	PresentDB *sqlx.DB
 }
 
@@ -98,44 +99,57 @@ func main() {
 	}
 
 	// connect db1
-	dbx1, err := connectDB(false, "1")
+	dbx, err := connectDB(false)
 	if err != nil {
 		e.Logger.Fatalf("failed to connect to db1: %v", err)
 	}
-	defer dbx1.Close()
-	dbx1.SetMaxIdleConns(1024) // デフォルトだと2
-	dbx1.SetConnMaxLifetime(0) // 一応セット
-	dbx1.SetConnMaxIdleTime(0) // 一応セット go1.15以上
+	defer dbx.Close()
+	dbx.SetMaxIdleConns(1024) // デフォルトだと2
+	dbx.SetConnMaxLifetime(0) // 一応セット
+	dbx.SetConnMaxIdleTime(0) // 一応セット go1.15以上
 
-	waitDB(dbx1)
-	go pollDB(dbx1)
+	waitDB(dbx)
+	go pollDB(dbx)
 	//
 
-	// connect db2
-	dbx2, err := connectDB(false, "2")
+	// connect present db
+	presentdbx, err := connectPresentDB(false)
 	if err != nil {
 		e.Logger.Fatalf("failed to connect to db2: %v", err)
 	}
-	defer dbx2.Close()
-	dbx2.SetMaxIdleConns(1024) // デフォルトだと2
-	dbx2.SetConnMaxLifetime(0) // 一応セット
-	dbx2.SetConnMaxIdleTime(0) // 一応セット go1.15以上
+	defer presentdbx.Close()
+	presentdbx.SetMaxIdleConns(1024) // デフォルトだと2
+	presentdbx.SetConnMaxLifetime(0) // 一応セット
+	presentdbx.SetConnMaxIdleTime(0) // 一応セット go1.15以上
 
-	waitDB(dbx2)
-	go pollDB(dbx2)
-	//
+	waitDB(presentdbx)
+	go pollDB(presentdbx)
+
+	// connect master db
+	masterdbx, err := connectMasterDB(false)
+	if err != nil {
+		e.Logger.Fatalf("failed to connect to db: %v", err)
+	}
+	defer masterdbx.Close()
+
+	waitDB(masterdbx)
+	go pollDB(masterdbx)
+
+	masterdbx.SetMaxIdleConns(1024) // デフォルトだと2
+	masterdbx.SetConnMaxLifetime(0) // 一応セット
+	masterdbx.SetConnMaxIdleTime(0) // 一応セット go1.15以上
 
 	// initializes
 	{
 		// マスタ確認
 		query := "SELECT * FROM version_masters WHERE status=1"
-		if err := dbx1.Get(masterVersion, query); err != nil && err != sql.ErrNoRows {
+		if err := dbx.Get(masterVersion, query); err != nil && err != sql.ErrNoRows {
 			e.Logger.Fatalf("failed to read master vesrion: %w", err)
 		}
 
 		var sessions []Session
 		query = "SELECT * FROM user_sessions WHERE deleted_at IS NULL"
-		if err := dbx1.Select(&sessions, query); err != nil {
+		if err := dbx.Select(&sessions, query); err != nil {
 			e.Logger.Fatalf("failed to read sessions: %w", err)
 		}
 		for i := range sessions {
@@ -160,8 +174,9 @@ func main() {
 	// setting server
 	e.Server.Addr = fmt.Sprintf(":%v", "8080")
 	h := &Handler{
-		DB:        dbx1,
-		PresentDB: dbx2,
+		DB:        dbx,
+		PresentDB: presentdbx,
+		MasterDB:  masterdbx,
 	}
 
 	// e.Use(middleware.CORS())
@@ -227,6 +242,7 @@ func (h *Handler) apiMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		}
 		c.Set("requestTime", requestAt.Unix())
 
+		// TODO: check master update db
 		masterVersionRWM.RLock()
 		if masterVersion.MasterVersion != c.Request().Header.Get("x-master-version") {
 			return errorResponse(c, http.StatusUnprocessableEntity, ErrInvalidMasterVersion)
@@ -604,6 +620,8 @@ func (h *Handler) obtainItem(tx *sqlx.Tx, userID, itemID int64, itemType int, ob
 	obtainCards := make([]*UserCard, 0)
 	obtainItems := make([]*UserItem, 0)
 
+	masterDBRWM.RLock()
+	defer masterDBRWM.RUnlock()
 	switch itemType {
 	case 1: // coin
 		user := new(User)
@@ -625,7 +643,7 @@ func (h *Handler) obtainItem(tx *sqlx.Tx, userID, itemID int64, itemType int, ob
 	case 2: // card(ハンマー)
 		query := "SELECT * FROM item_masters WHERE id=? AND item_type=?"
 		item := new(ItemMaster)
-		if err := tx.Get(item, query, itemID, itemType); err != nil {
+		if err := h.MasterDB.Get(item, query, itemID, itemType); err != nil {
 			if err == sql.ErrNoRows {
 				return nil, nil, nil, ErrItemNotFound
 			}
@@ -655,7 +673,7 @@ func (h *Handler) obtainItem(tx *sqlx.Tx, userID, itemID int64, itemType int, ob
 	case 3, 4: // 強化素材
 		query := "SELECT * FROM item_masters WHERE id=? AND item_type=?"
 		item := new(ItemMaster)
-		if err := tx.Get(item, query, itemID, itemType); err != nil {
+		if err := h.MasterDB.Get(item, query, itemID, itemType); err != nil {
 			if err == sql.ErrNoRows {
 				return nil, nil, nil, ErrItemNotFound
 			}
@@ -779,9 +797,7 @@ func (h *Handler) obtainItem3And4(tx *sqlx.Tx, userID, itemID int64, itemType in
 	return *uitem, nil
 }
 
-func runDBInit(hostNum string) ([]byte, error) {
-	host := os.Getenv("ISUCON_DB_HOST" + hostNum)
-
+func runDBInit(host string) ([]byte, error) {
 	cmd := exec.Command("/bin/sh", "-c", SQLDirectory+"init.sh")
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "ISUCON_DB_HOST="+host)
@@ -791,27 +807,39 @@ func runDBInit(hostNum string) ([]byte, error) {
 // initialize 初期化処理
 // POST /initialize
 func initialize(c echo.Context) error {
-	dbx1, err := connectDB(true, "1")
+	dbx, err := connectDB(true)
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
-	defer dbx1.Close()
-	dbx2, err := connectDB(true, "2")
+	defer dbx.Close()
+	presentdbx, err := connectPresentDB(true)
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
-	defer dbx2.Close()
+	defer presentdbx.Close()
+	masterdbx, err := connectMasterDB(true)
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	defer presentdbx.Close()
 
 	errg := errgroup.Group{}
 	errg.Go(func() error {
-		if out, err := runDBInit("1"); err != nil {
+		if out, err := runDBInit(os.Getenv("ISUCON_DB_HOST")); err != nil {
 			c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
 			return err
 		}
 		return nil
 	})
 	errg.Go(func() error {
-		if out, err := runDBInit("2"); err != nil {
+		if out, err := runDBInit(os.Getenv("ISUCON_PRESENT_DB_HOST")); err != nil {
+			c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
+			return err
+		}
+		return nil
+	})
+	errg.Go(func() error {
+		if out, err := runDBInit(os.Getenv("ISUCON_MASTER_DB_HOST")); err != nil {
 			c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
 			return err
 		}
@@ -832,7 +860,7 @@ func initialize(c echo.Context) error {
 	{
 		// マスタ確認
 		query := "SELECT * FROM version_masters WHERE status=1"
-		if err := dbx1.Get(masterVersion, query); err != nil {
+		if err := masterdbx.Get(masterVersion, query); err != nil {
 			if err == sql.ErrNoRows {
 				return errorResponse(c, http.StatusNotFound, fmt.Errorf("active master version is not found"))
 			}
@@ -842,7 +870,7 @@ func initialize(c echo.Context) error {
 		// userSession
 		var sessions []Session
 		query = "SELECT * FROM user_sessions WHERE deleted_at IS NULL"
-		if err := dbx1.Select(&sessions, query); err != nil {
+		if err := dbx.Select(&sessions, query); err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 		userSessions.Clear()
@@ -934,8 +962,9 @@ func (h *Handler) createUser(c echo.Context) error {
 	// 初期デッキ付与
 	initCard := new(ItemMaster)
 	query = "SELECT * FROM item_masters WHERE id=?"
-	if err = tx.Get(initCard, query, 2); err != nil {
+	if err = h.MasterDB.Get(initCard, query, 2); err != nil {
 		if err == sql.ErrNoRows {
+			// rollbacked
 			return errorResponse(c, http.StatusNotFound, ErrItemNotFound)
 		}
 		return errorResponse(c, http.StatusInternalServerError, err)
@@ -1223,7 +1252,9 @@ func (h *Handler) listGacha(c echo.Context) error {
 
 	gachaMasterList := []*GachaMaster{}
 	query := "SELECT * FROM gacha_masters WHERE start_at <= ? AND end_at >= ? ORDER BY display_order ASC"
-	err = h.DB.Select(&gachaMasterList, query, requestAt, requestAt)
+	masterDBRWM.RLock()
+	defer masterDBRWM.RUnlock()
+	err = h.MasterDB.Select(&gachaMasterList, query, requestAt, requestAt)
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
@@ -1239,7 +1270,7 @@ func (h *Handler) listGacha(c echo.Context) error {
 	query = "SELECT * FROM gacha_item_masters WHERE gacha_id=? ORDER BY id ASC"
 	for _, v := range gachaMasterList {
 		var gachaItem []*GachaItemMaster
-		err = h.DB.Select(&gachaItem, query, v.ID)
+		err = h.MasterDB.Select(&gachaItem, query, v.ID)
 		if err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
@@ -1358,10 +1389,12 @@ func (h *Handler) drawGacha(c echo.Context) error {
 		return errorResponse(c, http.StatusConflict, fmt.Errorf("not enough isucon"))
 	}
 
+	masterDBRWM.RLock()
+	defer masterDBRWM.RUnlock()
 	// gachaIDからガチャマスタの取得
 	query = "SELECT * FROM gacha_masters WHERE id=? AND start_at <= ? AND end_at >= ?"
 	gachaInfo := new(GachaMaster)
-	if err = h.DB.Get(gachaInfo, query, gachaID, requestAt, requestAt); err != nil {
+	if err = h.MasterDB.Get(gachaInfo, query, gachaID, requestAt, requestAt); err != nil {
 		if sql.ErrNoRows == err {
 			return errorResponse(c, http.StatusNotFound, fmt.Errorf("not found gacha"))
 		}
@@ -1370,7 +1403,7 @@ func (h *Handler) drawGacha(c echo.Context) error {
 
 	// gachaItemMasterからアイテムリスト取得
 	gachaItemList := make([]*GachaItemMaster, 0)
-	err = h.DB.Select(&gachaItemList, "SELECT * FROM gacha_item_masters WHERE gacha_id=? ORDER BY id ASC", gachaID)
+	err = h.MasterDB.Select(&gachaItemList, "SELECT * FROM gacha_item_masters WHERE gacha_id=? ORDER BY id ASC", gachaID)
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
@@ -1380,7 +1413,7 @@ func (h *Handler) drawGacha(c echo.Context) error {
 
 	// weightの合計値を算出
 	var sum int64
-	err = h.DB.Get(&sum, "SELECT SUM(weight) FROM gacha_item_masters WHERE gacha_id=?", gachaID)
+	err = h.MasterDB.Get(&sum, "SELECT SUM(weight) FROM gacha_item_masters WHERE gacha_id=?", gachaID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return errorResponse(c, http.StatusNotFound, err)
@@ -1614,16 +1647,19 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	}
 	defer tx1.Rollback() //nolint:errcheck
 
+	masterDBRWM.RLock()
 	// カード所持情報のバリデーション
-
 	itemMasters := make([]*ItemMaster, 0)
 	if len(itemIDs) != 0 {
 		query = "SELECT * FROM item_masters WHERE id IN (?)"
 		query, params, err = sqlx.In(query, itemIDs)
 		if err != nil {
+			masterDBRWM.RUnlock()
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
-		if err = tx1.Select(&itemMasters, query, params...); err != nil {
+		if err = h.MasterDB.Select(&itemMasters, query, params...); err != nil {
+			// rollbacked
+			masterDBRWM.RUnlock()
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 	}
@@ -1929,6 +1965,8 @@ func (h *Handler) addExpToCard(c echo.Context) error {
 		return errorResponse(c, http.StatusBadRequest, fmt.Errorf("target card is max level"))
 	}
 
+	masterDBRWM.RLock()
+	defer masterDBRWM.RUnlock()
 	// 消費アイテムの所持チェック
 	items := make([]*ConsumeUserItemData, 0)
 	query = `
@@ -1940,7 +1978,7 @@ func (h *Handler) addExpToCard(c echo.Context) error {
 	for _, v := range req.Items {
 		item := new(ConsumeUserItemData)
 		// TODO: N+1
-		if err = h.DB.Get(item, query, v.ID, userID); err != nil {
+		if err = h.MasterDB.Get(item, query, v.ID, userID); err != nil {
 			if err == sql.ErrNoRows {
 				return errorResponse(c, http.StatusNotFound, err)
 			}

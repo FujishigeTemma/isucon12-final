@@ -1946,22 +1946,35 @@ func (h *Handler) addExpToCard(c echo.Context) error {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
-	masterDBRWM.RLock()
-	defer masterDBRWM.RUnlock()
-
-	// get target card
-	card := new(TargetUserCardData)
-	query := `
-	SELECT uc.id , uc.user_id , uc.card_id , uc.amount_per_sec , uc.level, uc.total_exp, im.amount_per_sec as 'base_amount_per_sec', im.max_level , im.max_amount_per_sec , im.base_exp_per_level
-	FROM user_cards as uc
-	INNER JOIN item_masters as im ON uc.card_id = im.id
-	WHERE uc.id = ? AND uc.user_id=?
-	`
-	if err = h.MasterDB.Get(card, query, cardID, userID); err != nil {
+	var uc UserCard
+	if err := h.DB.Get(&uc, "SELECT * FROM user_cards WHERE id=? AND user_id=?", cardID, userID); err != nil {
 		if err == sql.ErrNoRows {
 			return errorResponse(c, http.StatusNotFound, err)
 		}
 		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+
+	masterDBRWM.RLock()
+	defer masterDBRWM.RUnlock()
+	var im ItemMaster
+	if err = h.MasterDB.Get(&im, "SELECT * FROM item_masters WHERE id=?", cardID); err != nil {
+		if err == sql.ErrNoRows {
+			return errorResponse(c, http.StatusNotFound, err)
+		}
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	//　uc.id , uc.user_id , uc.card_id , uc.amount_per_sec , uc.level, uc.total_exp, im.amount_per_sec as 'base_amount_per_sec', im.max_level , im.max_amount_per_sec , im.base_exp_per_level
+	card := TargetUserCardData{
+		ID:               uc.ID,
+		UserID:           userID,
+		CardID:           cardID,
+		AmountPerSec:     *im.AmountPerSec,
+		Level:            uc.Level,
+		TotalExp:         int(uc.TotalExp),
+		BaseAmountPerSec: *im.AmountPerSec,
+		MaxLevel:         *im.MaxLevel,
+		MaxAmountPerSec:  *im.MaxAmountPerSec,
+		BaseExpPerLevel:  *im.BaseExpPerLevel,
 	}
 
 	if card.Level == card.MaxLevel {
@@ -1970,27 +1983,52 @@ func (h *Handler) addExpToCard(c echo.Context) error {
 
 	// 消費アイテムの所持チェック
 	items := make([]*ConsumeUserItemData, 0)
-	query = `
-	SELECT ui.id, ui.user_id, ui.item_id, ui.item_type, ui.amount, ui.created_at, ui.updated_at, im.gained_exp
-	FROM user_items as ui
-	INNER JOIN item_masters as im ON ui.item_id = im.id
-	WHERE ui.item_type = 3 AND ui.id=? AND ui.user_id=?
-	`
-	for _, v := range req.Items {
-		item := new(ConsumeUserItemData)
+	uis := make([]*UserItem, 0)
+
+	itemids := make([]int64, len(req.Items), 0)
+	for i := range req.Items {
+		itemids = append(itemids, req.Items[i].ID)
+	}
+
+	query, args, err := sqlx.In("SELECT * FROM user_items WHERE item_type = 3 AND id IN (?) AND user_id=?", itemids, userID)
+	if err := h.DB.Select(&uis, query, args...); err != nil {
+		if err == sql.ErrNoRows {
+			return errorResponse(c, http.StatusNotFound, err)
+		}
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	//query = `
+	//SELECT ui.id, ui.user_id, ui.item_id, ui.item_type, ui.amount, ui.created_at, ui.updated_at, im.gained_exp
+	//FROM user_items as ui
+	//INNER JOIN item_masters as im ON ui.item_id = im.id
+	//WHERE ui.item_type = 3 AND ui.id=? AND ui.user_id=?
+	//`
+	for i, ui := range uis {
 		// TODO: N+1
-		if err = h.MasterDB.Get(item, query, v.ID, userID); err != nil {
+		var im ItemMaster
+		if err = h.MasterDB.Get(&im, "SELECT * FROM item_masters WHERE id=?", ui.ItemID); err != nil {
 			if err == sql.ErrNoRows {
 				return errorResponse(c, http.StatusNotFound, err)
 			}
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 
-		if v.Amount > item.Amount {
+		item := ConsumeUserItemData{
+			ID:            ui.ID,
+			UserID:        userID,
+			ItemID:        ui.ItemID,
+			ItemType:      ui.ItemType,
+			Amount:        ui.Amount,
+			CreatedAt:     ui.CreatedAt,
+			UpdatedAt:     ui.UpdatedAt,
+			GainedExp:     *im.GainedExp,
+			ConsumeAmount: req.Items[i].Amount,
+		}
+
+		if item.ConsumeAmount > item.Amount {
 			return errorResponse(c, http.StatusBadRequest, fmt.Errorf("item not enough"))
 		}
-		item.ConsumeAmount = v.Amount
-		items = append(items, item)
+		items = append(items, &item)
 	}
 
 	// 経験値付与

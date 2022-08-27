@@ -79,7 +79,8 @@ CREATE TABLE `login_bonus_masters` (
   `column_count` int(2) NOT NULL comment '何日分用意するかの日数。例:7日のスタートダッシュ、20日の通常ログイン',
   `looped` boolean NOT NULL comment 'ループするかどうか',
   `created_at` bigint NOT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  INDEX `start_end_index` (`start_at`, `end_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE `login_bonus_reward_masters` (
@@ -90,7 +91,8 @@ CREATE TABLE `login_bonus_reward_masters` (
   `item_id` int NOT NULL comment '付与するアイテムID',
   `amount` bigint NOT NULL comment '個数',
   `created_at` bigint NOT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  INDEX `login_bonus_id_reward_sequence_index` (`login_bonus_id`, `reward_sequence`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE `user_login_bonuses` (
@@ -103,7 +105,8 @@ CREATE TABLE `user_login_bonuses` (
   `updated_at`bigint NOT NULL,
   `deleted_at` bigint default NULL,
   PRIMARY KEY (`id`),
-  UNIQUE uniq_user_id (`user_id`, `login_bonus_id`, `deleted_at`)
+  UNIQUE uniq_user_id (`user_id`, `login_bonus_id`, `deleted_at`),
+  INDEX `user_id_login_bonus_id_index` (`user_id`, `login_bonus_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 /*  全員プレゼントマスタ */

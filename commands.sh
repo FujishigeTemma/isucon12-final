@@ -23,6 +23,11 @@ function deploy () {
 }
 
 function sync () {
+  if [[ $# -ne 1 ]] ; then
+    echo "requires one argument (branch_name)."
+    return
+  fi
+
   git fetch && \
   git reset --hard origin/$1 # <branch_name>
   source /home/isucon/webapp/commands.sh

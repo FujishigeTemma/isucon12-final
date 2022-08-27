@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -185,6 +186,10 @@ func (h *Handler) adminMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
+// initialized at /initialize and updated at POST /admin/master
+var masterVersion VersionMaster
+var masterVersionRWM = sync.RWMutex{}
+
 // apiMiddleware
 func (h *Handler) apiMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -194,19 +199,11 @@ func (h *Handler) apiMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		}
 		c.Set("requestTime", requestAt.Unix())
 
-		// マスタ確認
-		query := "SELECT * FROM version_masters WHERE status=1"
-		masterVersion := new(VersionMaster)
-		if err := h.DB.Get(masterVersion, query); err != nil {
-			if err == sql.ErrNoRows {
-				return errorResponse(c, http.StatusNotFound, fmt.Errorf("active master version is not found"))
-			}
-			return errorResponse(c, http.StatusInternalServerError, err)
-		}
-
+		masterVersionRWM.RLock()
 		if masterVersion.MasterVersion != c.Request().Header.Get("x-master-version") {
 			return errorResponse(c, http.StatusUnprocessableEntity, ErrInvalidMasterVersion)
 		}
+		masterVersionRWM.RUnlock()
 
 		// check ban
 		userID, err := getUserID(c)
@@ -799,6 +796,15 @@ func initialize(c echo.Context) error {
 			c.Logger().Printf("failed to communicate with pprotein: %v", err)
 		}
 	}()
+
+	// マスタ確認
+	query := "SELECT * FROM version_masters WHERE status=1"
+	if err := dbx.Get(masterVersion, query); err != nil {
+		if err == sql.ErrNoRows {
+			return errorResponse(c, http.StatusNotFound, fmt.Errorf("active master version is not found"))
+		}
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
 
 	return successResponse(c, &InitializeResponse{
 		Language: "go",

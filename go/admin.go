@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -236,7 +237,7 @@ func (h *Handler) adminUpdateMaster(c echo.Context) error {
 		}
 	}
 	if versionMasterRecs != nil {
-		data := []map[string]interface{}{}
+		var data []map[string]interface{}
 		for i, v := range versionMasterRecs {
 			if i == 0 {
 				continue
@@ -247,6 +248,23 @@ func (h *Handler) adminUpdateMaster(c echo.Context) error {
 				"master_version": v[2],
 			})
 		}
+
+		masterVersionRWM.Lock()
+		for i := range data {
+			if data[i]["status"] == "1" {
+				id, err := strconv.Atoi(data[i]["id"].(string))
+				if err != nil {
+					return errorResponse(c, http.StatusInternalServerError, err)
+				}
+				masterVersion = VersionMaster{
+					ID:            int64(id),
+					Status:        1,
+					MasterVersion: data[i]["master_version"].(string),
+				}
+				break
+			}
+		}
+		masterVersionRWM.Unlock()
 
 		query := "INSERT INTO version_masters(id, status, master_version) VALUES (:id, :status, :master_version) ON DUPLICATE KEY UPDATE status=VALUES(status), master_version=VALUES(master_version)"
 		if _, err = tx.NamedExec(query, data); err != nil {

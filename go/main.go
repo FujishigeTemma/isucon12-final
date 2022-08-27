@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kaz/pprotein/integration/standalone"
@@ -40,7 +40,7 @@ var (
 	ErrGeneratePassword         error = fmt.Errorf("failed to password hash") //nolint:deadcode
 
 	nextBaseID int64 = 100_000
-	serverNum  int
+	serverNum  int   = 1
 )
 
 const (
@@ -69,8 +69,9 @@ func main() {
 		AllowHeaders: []string{"Content-Type", "x-master-version", "x-session"},
 	}))
 
+	var err error
 	serverNumStr := getEnv("ISUCON_SERVER_NUM", "1")
-	serverNum, err := strconv.Atoi(serverNumStr)
+	serverNum, err = strconv.Atoi(serverNumStr)
 	if err != nil {
 		e.Logger.Fatalf("failed to connect to db: %v", err)
 	}
@@ -1926,7 +1927,7 @@ func noContentResponse(c echo.Context, status int) error {
 // generateID uniqueなIDを生成する
 // TODO: 重そう
 func (h *Handler) generateID() (int64, error) {
-	nextID := nextBaseID * int64(serverNum)
+	nextID := nextBaseID*10 + int64(serverNum)
 	atomic.AddInt64(&nextBaseID, 1)
 	return nextID, nil
 }

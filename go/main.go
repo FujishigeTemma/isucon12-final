@@ -430,19 +430,30 @@ func (h *Handler) obtainLoginBonus(tx *sqlx.Tx, userID int64, requestAt int64) (
 	if err := tx.Select(&loginBonuses, query, requestAt, requestAt); err != nil {
 		return nil, err
 	}
+	bonusIDs := make([]int64, len(loginBonuses))
+	for i := range loginBonuses {
+		bonusIDs[i] = loginBonuses[i].ID
+	}
+
+	userBonuses := make([]*UserLoginBonus, 0, len(loginBonuses))
+	query, args, err := sqlx.In("SELECT * FROM user_login_bonuses WHERE user_id=? AND login_bonus_id IN (?)", userID, bonusIDs)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Select(&userBonuses, query, args...); err != nil {
+		return nil, err
+	}
+	userBonusesMap := make(map[int64]*UserLoginBonus, len(userBonuses))
+	for i := range userBonuses {
+		userBonusesMap[userBonuses[i].LoginBonusID] = userBonuses[i]
+	}
 
 	sendLoginBonuses := make([]*UserLoginBonus, 0)
-
 	for _, bonus := range loginBonuses {
 		initBonus := false
-		// ボーナスの進捗取得
-		userBonus := new(UserLoginBonus)
-		// TODO: N+1
-		query = "SELECT * FROM user_login_bonuses WHERE user_id=? AND login_bonus_id=?"
-		if err := tx.Get(userBonus, query, userID, bonus.ID); err != nil {
-			if err != sql.ErrNoRows {
-				return nil, err
-			}
+
+		userBonus, ok := userBonusesMap[bonus.ID]
+		if !ok {
 			initBonus = true
 
 			ubID, err := h.generateID()

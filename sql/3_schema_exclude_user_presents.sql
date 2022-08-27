@@ -169,7 +169,7 @@ CREATE TABLE `user_items` (
   `deleted_at` bigint default NULL,
   PRIMARY KEY (`id`),
   INDEX userid_idx (`user_id`),
-  INDEX user_id_item_id_index (`user_id`, `item_id`),
+  INDEX user_id_item_id_index (`user_id`, `item_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE `user_cards` (

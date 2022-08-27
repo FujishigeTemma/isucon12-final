@@ -634,7 +634,7 @@ func initialize(c echo.Context) error {
 	}
 
 	go func() {
-		if _, err := http.Get("https://localhost:9000/api/group/collect"); err != nil {
+		if _, err := http.Get("http://localhost:9000/api/group/collect"); err != nil {
 			c.Logger().Printf("failed to communicate with pprotein: %v", err)
 		}
 	}()

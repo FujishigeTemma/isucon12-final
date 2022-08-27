@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"math/rand"
 	"net/http"
@@ -1432,16 +1431,17 @@ func (h *Handler) receivePresent(c echo.Context) error {
 
 	// カード所持情報のバリデーション
 
-	query = "SELECT * FROM item_masters WHERE id IN (?)"
-	query, params, err = sqlx.In(query, itemIDs)
-	if err != nil {
-		return errorResponse(c, http.StatusInternalServerError, err)
-	}
 	itemMasters := make([]*ItemMaster, 0)
-	if err = tx.Select(&itemMasters, query, params...); err != nil {
-		return errorResponse(c, http.StatusInternalServerError, err)
+	if len(itemIDs) != 0 {
+		query = "SELECT * FROM item_masters WHERE id IN (?)"
+		query, params, err = sqlx.In(query, itemIDs)
+		if err != nil {
+			return errorResponse(c, http.StatusInternalServerError, err)
+		}
+		if err = tx.Select(&itemMasters, query, params...); err != nil {
+			return errorResponse(c, http.StatusInternalServerError, err)
+		}
 	}
-	log.Printf("ids: %v, masters: %v", itemIDs, itemMasters)
 
 	// 配布処理
 	cards := []UserCard{}

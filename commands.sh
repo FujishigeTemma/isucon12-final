@@ -15,9 +15,9 @@ function deploy () {
   (cd /home/isucon/webapp/go && go build -o app)
 
   sudo systemctl daemon-reload
-  # sudo systemctl restart nginx
-  # sudo systemctl restart mysql
-  # sudo systemctl restart isucon.go
+  sudo systemctl restart nginx
+  sudo systemctl restart mysql
+  sudo systemctl restart isuconquest.go
 
   sudo sysctl -p /etc/sysctl.d/99-isucon.conf
 }

@@ -1616,6 +1616,24 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		}
 	}
 
+	userIDs := []int64{}
+	for i := range obtainPresent {
+		if obtainPresent[i].ItemType == 1 {
+			userIDs = append(userIDs, obtainPresent[i].UserID)
+		}
+	}
+	usersExists := make([]User, 0)
+	if len(userIDs) != 0 {
+		query = "SELECT * FROM users WHERE id IN (?)"
+		query, params, err = sqlx.In(query, itemIDs)
+		if err != nil {
+			return errorResponse(c, http.StatusInternalServerError, err)
+		}
+		if err = tx1.Select(&usersExists, query, params...); err != nil {
+			return errorResponse(c, http.StatusInternalServerError, err)
+		}
+	}
+
 	// 配布処理
 	cards := []UserCard{}
 	items := []UserItem{}
@@ -1628,9 +1646,19 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		// TODO: 5N+1くらいになってる
 		switch v.ItemType {
 		case 1: // coin
-			var updateIsuCoin User
-			updateIsuCoin, _, err = h.obtainItem1(tx1, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
-			updateIsuCoins = append(updateIsuCoins, updateIsuCoin)
+			exist := false
+			for j := range usersExists {
+				if usersExists[j].ID == v.UserID {
+					exist = true
+				}
+			}
+			if exist {
+				var updateIsuCoin User
+				updateIsuCoin, _, err = h.obtainItem1(tx1, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+				updateIsuCoins = append(updateIsuCoins, updateIsuCoin)
+			} else {
+				err = ErrUserNotFound
+			}
 		case 2: // card(ハンマー)
 			var itemMaster *ItemMaster
 			exist := false

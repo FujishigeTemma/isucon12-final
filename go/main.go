@@ -143,7 +143,7 @@ func main() {
 	{
 		// マスタ確認
 		query := "SELECT * FROM version_masters WHERE status=1"
-		if err := dbx.Get(masterVersion, query); err != nil && err != sql.ErrNoRows {
+		if err := masterdbx.Get(masterVersion, query); err != nil && err != sql.ErrNoRows {
 			e.Logger.Fatalf("failed to read master vesrion: %w", err)
 		}
 
@@ -1946,6 +1946,9 @@ func (h *Handler) addExpToCard(c echo.Context) error {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
+	masterDBRWM.RLock()
+	defer masterDBRWM.RUnlock()
+
 	// get target card
 	card := new(TargetUserCardData)
 	query := `
@@ -1954,7 +1957,7 @@ func (h *Handler) addExpToCard(c echo.Context) error {
 	INNER JOIN item_masters as im ON uc.card_id = im.id
 	WHERE uc.id = ? AND uc.user_id=?
 	`
-	if err = h.DB.Get(card, query, cardID, userID); err != nil {
+	if err = h.MasterDB.Get(card, query, cardID, userID); err != nil {
 		if err == sql.ErrNoRows {
 			return errorResponse(c, http.StatusNotFound, err)
 		}
@@ -1965,8 +1968,6 @@ func (h *Handler) addExpToCard(c echo.Context) error {
 		return errorResponse(c, http.StatusBadRequest, fmt.Errorf("target card is max level"))
 	}
 
-	masterDBRWM.RLock()
-	defer masterDBRWM.RUnlock()
 	// 消費アイテムの所持チェック
 	items := make([]*ConsumeUserItemData, 0)
 	query = `

@@ -11,9 +11,10 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"sync/atomic"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kaz/pprotein/integration/standalone"
@@ -37,6 +38,9 @@ var (
 	ErrUnauthorized             error = fmt.Errorf("unauthorized user")
 	ErrForbidden                error = fmt.Errorf("forbidden")
 	ErrGeneratePassword         error = fmt.Errorf("failed to password hash") //nolint:deadcode
+
+	nextBaseID int64 = 100_000
+	serverNum  int   = 1
 )
 
 const (
@@ -64,6 +68,13 @@ func main() {
 		AllowMethods: []string{http.MethodGet, http.MethodPost},
 		AllowHeaders: []string{"Content-Type", "x-master-version", "x-session"},
 	}))
+
+	var err error
+	serverNumStr := getEnv("ISUCON_SERVER_NUM", "1")
+	serverNum, err = strconv.Atoi(serverNumStr)
+	if err != nil {
+		e.Logger.Fatalf("failed to connect to db: %v", err)
+	}
 
 	// connect db
 	dbx, err := connectDB(false)
@@ -1914,27 +1925,10 @@ func noContentResponse(c echo.Context, status int) error {
 }
 
 // generateID uniqueなIDを生成する
-// TODO: 重そう
 func (h *Handler) generateID() (int64, error) {
-	var updateErr error
-	for i := 0; i < 100; i++ {
-		res, err := h.DB.Exec("UPDATE id_generator SET id=LAST_INSERT_ID(id+1)")
-		if err != nil {
-			if merr, ok := err.(*mysql.MySQLError); ok && merr.Number == 1213 {
-				updateErr = err
-				continue
-			}
-			return 0, err
-		}
-
-		id, err := res.LastInsertId()
-		if err != nil {
-			return 0, err
-		}
-		return id, nil
-	}
-
-	return 0, fmt.Errorf("failed to generate id: %w", updateErr)
+	nextBase := atomic.AddInt64(&nextBaseID, 1)
+	nextID := nextBase*10 + int64(serverNum)
+	return nextID, nil
 }
 
 // generateSessionID

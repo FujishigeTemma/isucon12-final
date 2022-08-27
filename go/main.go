@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"math/rand"
 	"net/http"
@@ -1931,6 +1932,7 @@ func noContentResponse(c echo.Context, status int) error {
 func (h *Handler) generateID() (int64, error) {
 	nextBase := atomic.AddInt64(&nextBaseID, 1)
 	nextID := nextBase*10 + int64(serverNum)
+	log.Printf("nextID: %v", nextID)
 	return nextID, nil
 }
 

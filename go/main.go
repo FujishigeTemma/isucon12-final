@@ -1696,7 +1696,6 @@ func (h *Handler) receivePresent(c echo.Context) error {
 			var itemMaster *ItemMaster
 			var usersItem *UserItem
 			exist := false
-			exist1 := false
 			for j := range itemMasters {
 				if itemMasters[j].ID == v.ItemID && itemMasters[j].ItemType == v.ItemType {
 					itemMaster = itemMasters[j]
@@ -1706,10 +1705,9 @@ func (h *Handler) receivePresent(c echo.Context) error {
 			for j := range usersItems {
 				if usersItems[j].ItemID == v.ItemID && usersItems[j].UserID == v.UserID {
 					usersItem = usersItems[j]
-					exist1 = true
 				}
 			}
-			if exist && exist1 {
+			if exist {
 				var tmpItem UserItem
 				tmpItem, err = h.obtainItem3And4(tx1, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt, itemMaster, usersItem)
 				items = append(items, tmpItem)

@@ -21,6 +21,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -757,12 +758,23 @@ func initialize(c echo.Context) error {
 	}
 	defer dbx2.Close()
 
-	if out, err := runDBInit("1"); err != nil {
-		c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
-		return errorResponse(c, http.StatusInternalServerError, err)
-	}
-	if out, err := runDBInit("2"); err != nil {
-		c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
+	errg := errgroup.Group{}
+	errg.Go(func() error {
+		if out, err := runDBInit("1"); err != nil {
+			c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
+			return err
+		}
+		return nil
+	})
+	errg.Go(func() error {
+		if out, err := runDBInit("2"); err != nil {
+			c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
+			return err
+		}
+		return nil
+	})
+	err = errg.Wait()
+	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 

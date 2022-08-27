@@ -666,11 +666,8 @@ func (h *Handler) obtainItem1(tx *sqlx.Tx, userID, itemID int64, itemType int, o
 		return UpdateIcuCoin{}, 0, err
 	}
 
-	query = "UPDATE users SET isu_coin=? WHERE id=?"
 	totalCoin := user.IsuCoin + obtainAmount
-	if _, err := tx.Exec(query, totalCoin, user.ID); err != nil {
-		return UpdateIcuCoin{}, 0, err
-	}
+
 	return UpdateIcuCoin{ID: user.ID, IsuCoin: totalCoin}, obtainAmount, nil
 }
 
@@ -1466,7 +1463,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	// 配布処理
 	cards := []UserCard{}
 	items := []UserItem{}
-	// updateIsuCoins := []UpdateIcuCoin{}
+	updateIsuCoins := []UpdateIcuCoin{}
 	for i := range obtainPresent {
 		obtainPresent[i].UpdatedAt = requestAt
 		obtainPresent[i].DeletedAt = &requestAt
@@ -1475,11 +1472,9 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		// TODO: 5N+1くらいになってる
 		switch v.ItemType {
 		case 1: // coin
-			// var updateIsuCoin UpdateIcuCoin
-			// updateIsuCoin, _, err = h.obtainItem1(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
-			// updateIsuCoins = append(updateIsuCoins, updateIsuCoin)
-
-			_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+			var updateIsuCoin UpdateIcuCoin
+			updateIsuCoin, _, err = h.obtainItem1(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+			updateIsuCoins = append(updateIsuCoins, updateIsuCoin)
 		case 2: // card(ハンマー)
 			var itemMaster *ItemMaster
 			exist := false
@@ -1535,6 +1530,14 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	if len(items) != 0 {
 		queryItems := "INSERT INTO user_items(id, user_id, item_id, item_type, amount, created_at, updated_at) VALUES (:id, :user_id, :item_id, :item_type, :amount, :created_at, :updated_at) ON DUPLICATE KEY UPDATE amount = VALUES(amount), updated_at = VALUES(updated_at);"
 		_, err = tx.NamedExec(queryItems, items)
+		if err != nil {
+			return errorResponse(c, http.StatusInternalServerError, err)
+		}
+	}
+
+	if len(updateIsuCoins) != 0 {
+		queryCoins := "INSERT INTO users(id, isu_coin) VALUES (:id, :isu_coin) ON DUPLICATE KEY UPDATE isu_coin = VALUES(isu_coin)"
+		_, err = tx.NamedExec(queryCoins, updateIsuCoins)
 		if err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}

@@ -250,6 +250,7 @@ func (h *Handler) adminUpdateMaster(c echo.Context) error {
 		}
 
 		masterVersionRWM.Lock()
+		defer masterVersionRWM.Unlock()
 		for i := range data {
 			if data[i]["status"] == "1" {
 				id, err := strconv.Atoi(data[i]["id"].(string))
@@ -264,7 +265,6 @@ func (h *Handler) adminUpdateMaster(c echo.Context) error {
 				break
 			}
 		}
-		masterVersionRWM.Unlock()
 
 		query := "INSERT INTO version_masters(id, status, master_version) VALUES (:id, :status, :master_version) ON DUPLICATE KEY UPDATE status=VALUES(status), master_version=VALUES(master_version)"
 		if _, err = tx.NamedExec(query, data); err != nil {

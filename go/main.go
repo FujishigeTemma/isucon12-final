@@ -1449,16 +1449,20 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		}
 	}
 
-	queryCards := "INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES (:id, :user_id, :card_id, :amount_per_sec, :level, :total_exp, :created_at, :updated_at)"
-	_, err = tx.NamedExec(queryCards, cards)
-	if err != nil {
-		return errorResponse(c, http.StatusInternalServerError, err)
+	if len(cards) != 0 {
+		queryCards := "INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES (:id, :user_id, :card_id, :amount_per_sec, :level, :total_exp, :created_at, :updated_at)"
+		_, err = tx.NamedExec(queryCards, cards)
+		if err != nil {
+			return errorResponse(c, http.StatusInternalServerError, err)
+		}
 	}
 
-	queryItems := "INSERT INTO user_items(id, user_id, item_id, item_type, amount, created_at, updated_at) VALUES (:id, :user_id, :item_id, :item_type, :amount, :created_at, :updated_at) ON DUPLICATE KEY UPDATE amount = VALUES(amount), updated_at = VALUES(updated_at);"
-	_, err = tx.NamedExec(queryItems, items)
-	if err != nil {
-		return errorResponse(c, http.StatusInternalServerError, err)
+	if len(items) != 0 {
+		queryItems := "INSERT INTO user_items(id, user_id, item_id, item_type, amount, created_at, updated_at) VALUES (:id, :user_id, :item_id, :item_type, :amount, :created_at, :updated_at) ON DUPLICATE KEY UPDATE amount = VALUES(amount), updated_at = VALUES(updated_at);"
+		_, err = tx.NamedExec(queryItems, items)
+		if err != nil {
+			return errorResponse(c, http.StatusInternalServerError, err)
+		}
 	}
 
 	err = tx.Commit()

@@ -430,11 +430,13 @@ func (h *Handler) obtainLoginBonus(tx *sqlx.Tx, userID int64, requestAt int64) (
 	if err := tx.Select(&loginBonuses, query, requestAt, requestAt); err != nil {
 		return nil, err
 	}
-
-	sendLoginBonuses := make([]*UserLoginBonus, 0)
+	bonusIDs := make([]int64, len(loginBonuses))
+	for i := range loginBonuses {
+		bonusIDs[i] = loginBonuses[i].ID
+	}
 
 	userBonuses := make([]*UserLoginBonus, 0, len(loginBonuses))
-	query, args, err := sqlx.In("SELECT * FROM user_login_bonuses WHERE user_id=? AND login_bonus_id IN (?)")
+	query, args, err := sqlx.In("SELECT * FROM user_login_bonuses WHERE user_id=? AND login_bonus_id IN (?)", userID, bonusIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -446,6 +448,7 @@ func (h *Handler) obtainLoginBonus(tx *sqlx.Tx, userID int64, requestAt int64) (
 		userBonusesMap[userBonuses[i].LoginBonusID] = userBonuses[i]
 	}
 
+	sendLoginBonuses := make([]*UserLoginBonus, 0)
 	for _, bonus := range loginBonuses {
 		initBonus := false
 

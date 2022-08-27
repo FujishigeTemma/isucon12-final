@@ -11,6 +11,8 @@ Group=isucon
 ExecStart=/home/isucon/.x /home/isucon/webapp/go/isuconquest
 ExecStop=/bin/kill -s QUIT $MAINPID
 
+LimitNOFILE=65535
+
 Restart   = always
 Type      = simple
 

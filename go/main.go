@@ -187,7 +187,7 @@ func (h *Handler) adminMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 // initialized at /initialize and updated at POST /admin/master
-var masterVersion *VersionMaster
+var masterVersion = new(VersionMaster)
 var masterVersionRWM = sync.RWMutex{}
 
 // apiMiddleware

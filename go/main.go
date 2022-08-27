@@ -1622,7 +1622,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 			userIDs = append(userIDs, obtainPresent[i].UserID)
 		}
 	}
-	usersExists := make([]User, 0)
+	usersExists := make([]*User, 0)
 	if len(userIDs) != 0 {
 		query = "SELECT * FROM users WHERE id IN (?)"
 		query, params, err = sqlx.In(query, itemIDs)
@@ -1647,7 +1647,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		switch v.ItemType {
 		case 1: // coin
 			exist := false
-			userE := User{}
+			userE := &User{}
 			for j := range usersExists {
 				if usersExists[j].ID == v.UserID {
 					exist = true

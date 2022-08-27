@@ -64,6 +64,7 @@ CREATE TABLE `user_devices` (
   `updated_at`bigint NOT NULL,
   `deleted_at` bigint default NULL,
   PRIMARY KEY(`id`),
+  INDEX user_id_platform_id_index (`user_id`, `platform_id`),
   UNIQUE uniq_user_id ( `user_id`, `platform_type`, `deleted_at`),
   UNIQUE uniq_platform_id (`platform_id`, `platform_type`, `deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
@@ -167,7 +168,8 @@ CREATE TABLE `user_items` (
   `updated_at`bigint NOT NULL,
   `deleted_at` bigint default NULL,
   PRIMARY KEY (`id`),
-  INDEX userid_idx (`user_id`)
+  INDEX userid_idx (`user_id`),
+  INDEX user_id_item_id_index (`user_id`, `item_id`),
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE `user_cards` (
@@ -198,7 +200,8 @@ CREATE TABLE `item_masters` (
   `gained_exp` int comment 'TYPE3:獲得経験値',
   `shortening_min` bigint comment 'TYPE4:短縮時間(分)',
   -- `created_at` bigint,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  INDEX `id_item_type_index` (`id`, `item_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 

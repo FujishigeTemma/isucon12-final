@@ -80,7 +80,7 @@ max_binlog_size   = 100M
 max_connections = 1024
 
 # (until MySQL 5.7)
-query_cache_type = ON
+# query_cache_type = ON
 
 # 内部一時テーブルのサイズ
 tmp_table_size = 64M

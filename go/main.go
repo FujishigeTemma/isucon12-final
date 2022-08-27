@@ -459,8 +459,8 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 
 	// 全員プレゼント取得情報更新
 	obtainPresents := make([]*UserPresent, 0)
-	ups := make([]*UserPresent, len(normalPresents))
-	histories := make([]*UserPresentAllReceivedHistory, len(normalPresents))
+	ups := make([]UserPresent, len(normalPresents))
+	histories := make([]UserPresentAllReceivedHistory, len(normalPresents))
 	for _, np := range normalPresents {
 		if _, ok := receivedIDsSet[np.ID]; ok {
 			continue
@@ -471,7 +471,7 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 		if err != nil {
 			return nil, err
 		}
-		up := &UserPresent{
+		up := UserPresent{
 			ID:             pID,
 			UserID:         userID,
 			SentAt:         requestAt,
@@ -484,7 +484,7 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 		}
 		ups = append(ups, up)
 
-		history := &UserPresentAllReceivedHistory{
+		history := UserPresentAllReceivedHistory{
 			UserID:       userID,
 			PresentAllID: np.ID,
 			ReceivedAt:   requestAt,
@@ -493,7 +493,7 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 		}
 		histories = append(histories, history)
 
-		obtainPresents = append(obtainPresents, up)
+		obtainPresents = append(obtainPresents, &up)
 	}
 
 	query = "INSERT INTO user_presents(id, user_id, sent_at, item_type, item_id, amount, present_message, created_at, updated_at) VALUES (:id, :user_id, :sent_at, :item_type, :item_id, :amount, :present_message, :created_at, :updated_at)"

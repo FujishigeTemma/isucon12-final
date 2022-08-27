@@ -659,7 +659,7 @@ func (h *Handler) obtainItem1(tx *sqlx.Tx, userID, itemID int64, itemType int, o
 }
 
 // obtainItem アイテム付与処理
-func (h *Handler) obtainItem2(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64, item &ItemMaster) (UserCard, error) {
+func (h *Handler) obtainItem2(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64, item *ItemMaster) (UserCard, error) {
 	// card(ハンマー)
 	cID, err := h.generateID()
 	if err != nil {
@@ -680,7 +680,7 @@ func (h *Handler) obtainItem2(tx *sqlx.Tx, userID, itemID int64, itemType int, o
 }
 
 // obtainItem アイテム付与処理
-func (h *Handler) obtainItem3And4(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64, item &ItemMaster) (UserItem, error) {
+func (h *Handler) obtainItem3And4(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64, item *ItemMaster) (UserItem, error) {
 	obtainItems := make([]*UserItem, 0)
 	// 強化素材
 
@@ -1459,7 +1459,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 
 			_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
 		case 2: // card(ハンマー)
-			itemMaster := ItemMaster{}
+			var itemMaster *ItemMaster
 			exist := false
 			for j := range itemMasters {
 				if itemMasters[j].ID == v.ItemID && itemMasters[j].ItemType == v.ItemType {
@@ -1475,7 +1475,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 				err = ErrItemNotFound
 			}
 		case 3, 4: // 強化素材
-			itemMaster := ItemMaster{}
+			var itemMaster *ItemMaster
 			exist := false
 			for j := range itemMasters {
 				if itemMasters[j].ID == v.ItemID && itemMasters[j].ItemType == v.ItemType {

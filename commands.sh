@@ -19,7 +19,8 @@ function deploy () {
   sudo systemctl restart mysql
   sudo systemctl restart isuconquest.go
 
-  sudo sysctl -p /etc/sysctl.d/99-isucon.conf
+  # 適応済み
+  # sudo sysctl -p /etc/sysctl.d/99-isucon.conf
 }
 
 function sync () {

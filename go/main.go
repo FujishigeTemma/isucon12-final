@@ -21,7 +21,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	"github.com/kaz/pprotein/integration/standalone"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/pkg/errors"
@@ -61,13 +60,10 @@ type Handler struct {
 }
 
 func main() {
-	go standalone.Integrate(":8888")
-
 	rand.Seed(time.Now().UnixNano())
 	time.Local = time.FixedZone("Local", 9*60*60)
 
 	e := echo.New()
-	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
@@ -813,12 +809,6 @@ func initialize(c echo.Context) error {
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
-
-	go func() {
-		if _, err := http.Get("http://localhost:9000/api/group/collect"); err != nil {
-			c.Logger().Printf("failed to communicate with pprotein: %v", err)
-		}
-	}()
 
 	// initialize cache
 	{

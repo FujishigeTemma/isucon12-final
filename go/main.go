@@ -22,6 +22,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -52,7 +53,8 @@ const (
 )
 
 type Handler struct {
-	DB *sqlx.DB
+	DB        *sqlx.DB
+	PresentDB *sqlx.DB
 }
 
 func main() {
@@ -92,19 +94,33 @@ func main() {
 		e.Logger.Fatalf("failed to connect to db: %v", err)
 	}
 
-	// connect db
-	dbx, err := connectDB(false)
+	// connect db1
+	dbx1, err := connectDB(false, "1")
 	if err != nil {
-		e.Logger.Fatalf("failed to connect to db: %v", err)
+		e.Logger.Fatalf("failed to connect to db1: %v", err)
 	}
-	defer dbx.Close()
+	defer dbx1.Close()
+	dbx1.SetMaxIdleConns(1024) // デフォルトだと2
+	dbx1.SetConnMaxLifetime(0) // 一応セット
+	dbx1.SetConnMaxIdleTime(0) // 一応セット go1.15以上
 
-	waitDB(dbx)
-	go pollDB(dbx)
+	waitDB(dbx1)
+	go pollDB(dbx1)
+	//
 
-	dbx.SetMaxIdleConns(1024) // デフォルトだと2
-	dbx.SetConnMaxLifetime(0) // 一応セット
-	dbx.SetConnMaxIdleTime(0) // 一応セット go1.15以上
+	// connect db2
+	dbx2, err := connectDB(false, "2")
+	if err != nil {
+		e.Logger.Fatalf("failed to connect to db2: %v", err)
+	}
+	defer dbx2.Close()
+	dbx2.SetMaxIdleConns(1024) // デフォルトだと2
+	dbx2.SetConnMaxLifetime(0) // 一応セット
+	dbx2.SetConnMaxIdleTime(0) // 一応セット go1.15以上
+
+	waitDB(dbx2)
+	go pollDB(dbx2)
+	//
 
 	// 問題の切り分け用
 	http.DefaultTransport.(*http.Transport).MaxIdleConns = 0           // 無制限
@@ -115,7 +131,8 @@ func main() {
 	// setting server
 	e.Server.Addr = fmt.Sprintf(":%v", "8080")
 	h := &Handler{
-		DB: dbx,
+		DB:        dbx1,
+		PresentDB: dbx2,
 	}
 
 	// e.Use(middleware.CORS())
@@ -324,7 +341,7 @@ func getRequestTime(c echo.Context) (int64, error) {
 }
 
 // loginProcess ログイン処理
-func (h *Handler) loginProcess(tx *sqlx.Tx, userID int64, requestAt int64) (*User, []*UserLoginBonus, []*UserPresent, error) {
+func (h *Handler) loginProcess(tx *sqlx.Tx, txPresent *sqlx.Tx, userID int64, requestAt int64) (*User, []*UserLoginBonus, []*UserPresent, error) {
 	user := new(User)
 	query := "SELECT * FROM users WHERE id=?"
 	if err := tx.Get(user, query, userID); err != nil {
@@ -341,7 +358,7 @@ func (h *Handler) loginProcess(tx *sqlx.Tx, userID int64, requestAt int64) (*Use
 	}
 
 	// 全員プレゼント取得
-	allPresents, err := h.obtainPresent(tx, userID, requestAt)
+	allPresents, err := h.obtainPresent(tx, txPresent, userID, requestAt)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -459,7 +476,7 @@ func (h *Handler) obtainLoginBonus(tx *sqlx.Tx, userID int64, requestAt int64) (
 }
 
 // obtainPresent プレゼント付与処理
-func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*UserPresent, error) {
+func (h *Handler) obtainPresent(tx *sqlx.Tx, txPresent *sqlx.Tx, userID int64, requestAt int64) ([]*UserPresent, error) {
 	normalPresents := make([]*PresentAllMaster, 0)
 	query := "SELECT * FROM present_all_masters WHERE registered_start_at <= ? AND registered_end_at >= ?"
 	if err := tx.Select(&normalPresents, query, requestAt, requestAt); err != nil {
@@ -525,7 +542,7 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 
 	if len(ups) != 0 {
 		queryUp := "INSERT INTO user_presents(id, user_id, sent_at, item_type, item_id, amount, present_message, created_at, updated_at) VALUES (:id, :user_id, :sent_at, :item_type, :item_id, :amount, :present_message, :created_at, :updated_at)"
-		_, err = tx.NamedExec(queryUp, ups)
+		_, err = txPresent.NamedExec(queryUp, ups)
 		if err != nil {
 			return nil, err
 		}
@@ -734,18 +751,46 @@ func (h *Handler) obtainItem3And4(tx *sqlx.Tx, userID, itemID int64, itemType in
 	return *uitem, nil
 }
 
+func runDBInit(hostNum string) ([]byte, error) {
+	host := os.Getenv("ISUCON_DB_HOST" + hostNum)
+
+	cmd := exec.Command("/bin/sh", "-c", SQLDirectory+"init.sh")
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "ISUCON_DB_HOST="+host)
+	return cmd.CombinedOutput()
+}
+
 // initialize 初期化処理
 // POST /initialize
 func initialize(c echo.Context) error {
-	dbx, err := connectDB(true)
+	dbx1, err := connectDB(true, "1")
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
-	defer dbx.Close()
-
-	out, err := exec.Command("/bin/sh", "-c", SQLDirectory+"init.sh").CombinedOutput()
+	defer dbx1.Close()
+	dbx2, err := connectDB(true, "2")
 	if err != nil {
-		c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	defer dbx2.Close()
+
+	errg := errgroup.Group{}
+	errg.Go(func() error {
+		if out, err := runDBInit("1"); err != nil {
+			c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
+			return err
+		}
+		return nil
+	})
+	errg.Go(func() error {
+		if out, err := runDBInit("2"); err != nil {
+			c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
+			return err
+		}
+		return nil
+	})
+	err = errg.Wait()
+	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
@@ -878,8 +923,14 @@ func (h *Handler) createUser(c echo.Context) error {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
+	txPresent, err := h.PresentDB.Beginx()
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	defer txPresent.Rollback() //nolint:errcheck
+
 	// ログイン処理
-	user, loginBonuses, presents, err := h.loginProcess(tx, user.ID, requestAt)
+	user, loginBonuses, presents, err := h.loginProcess(tx, txPresent, user.ID, requestAt)
 	if err != nil {
 		if err == ErrUserNotFound || err == ErrItemNotFound || err == ErrLoginBonusRewardNotFound {
 			return errorResponse(c, http.StatusNotFound, err)
@@ -915,6 +966,10 @@ func (h *Handler) createUser(c echo.Context) error {
 	err = tx.Commit()
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	err = txPresent.Commit()
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err) // 起きたら本当はtxをrollbackする必要あり
 	}
 
 	return successResponse(c, &CreateUserResponse{
@@ -1033,8 +1088,14 @@ func (h *Handler) login(c echo.Context) error {
 		})
 	}
 
+	txPresent, err := h.PresentDB.Beginx()
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	defer txPresent.Rollback() //nolint:errcheck
+
 	// login process
-	user, loginBonuses, presents, err := h.loginProcess(tx, req.UserID, requestAt)
+	user, loginBonuses, presents, err := h.loginProcess(tx, txPresent, req.UserID, requestAt)
 	if err != nil {
 		if err == ErrUserNotFound || err == ErrItemNotFound || err == ErrLoginBonusRewardNotFound {
 			return errorResponse(c, http.StatusNotFound, err)
@@ -1048,6 +1109,10 @@ func (h *Handler) login(c echo.Context) error {
 	err = tx.Commit()
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	err = txPresent.Commit()
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err) // 起きたら本当はtxをrollbackする必要あり
 	}
 
 	return successResponse(c, &LoginResponse{
@@ -1262,12 +1327,6 @@ func (h *Handler) drawGacha(c echo.Context) error {
 		}
 	}
 
-	tx, err := h.DB.Beginx()
-	if err != nil {
-		return errorResponse(c, http.StatusInternalServerError, err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-
 	// 直付与 => プレゼントに入れる
 	presents := make([]*UserPresent, 0, gachaCount)
 	for _, v := range result {
@@ -1290,12 +1349,28 @@ func (h *Handler) drawGacha(c echo.Context) error {
 		presents = append(presents, present)
 	}
 
-	if len(presents) != 0 {
-		queryPresents := "INSERT INTO user_presents(id, user_id, sent_at, item_type, item_id, amount, present_message, created_at, updated_at) VALUES (:id, :user_id, :sent_at, :item_type, :item_id, :amount, :present_message, :created_at, :updated_at)"
-		_, err = tx.NamedExec(queryPresents, presents)
-		if err != nil {
-			return errorResponse(c, http.StatusInternalServerError, err)
-		}
+	if len(presents) == 0 {
+		return successResponse(c, &DrawGachaResponse{
+			Presents: presents,
+		})
+	}
+
+	tx, err := h.DB.Beginx()
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	tx2, err := h.PresentDB.Beginx()
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	defer tx2.Rollback() //nolint:errcheck
+
+	queryPresents := "INSERT INTO user_presents(id, user_id, sent_at, item_type, item_id, amount, present_message, created_at, updated_at) VALUES (:id, :user_id, :sent_at, :item_type, :item_id, :amount, :present_message, :created_at, :updated_at)"
+	_, err = tx2.NamedExec(queryPresents, presents)
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
 	// isuconをへらす
@@ -1308,6 +1383,10 @@ func (h *Handler) drawGacha(c echo.Context) error {
 	err = tx.Commit()
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	err = tx2.Commit()
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err) // 起きたら本当はtxをrollbackする必要あり
 	}
 
 	return successResponse(c, &DrawGachaResponse{
@@ -1347,12 +1426,12 @@ func (h *Handler) listPresent(c echo.Context) error {
 	WHERE user_id = ? AND deleted_at IS NULL
 	ORDER BY created_at DESC, id
 	LIMIT ? OFFSET ?`
-	if err = h.DB.Select(&presentList, query, userID, PresentCountPerPage, offset); err != nil {
+	if err = h.PresentDB.Select(&presentList, query, userID, PresentCountPerPage, offset); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
 	var presentCount int
-	if err = h.DB.Get(&presentCount, "SELECT COUNT(*) FROM user_presents WHERE user_id = ? AND deleted_at IS NULL", userID); err != nil {
+	if err = h.PresentDB.Get(&presentCount, "SELECT COUNT(*) FROM user_presents WHERE user_id = ? AND deleted_at IS NULL", userID); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
@@ -1403,28 +1482,33 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
+	tx2, err := h.PresentDB.Beginx()
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	defer tx2.Rollback() //nolint:errcheck
+
 	// user_presentsに入っているが未取得のプレゼント取得
-	query := "SELECT * FROM user_presents WHERE id IN (?) AND deleted_at IS NULL"
+	query := "SELECT * FROM user_presents WHERE id IN (?) AND deleted_at IS NULL FOR UPDATE"
 	query, params, err := sqlx.In(query, req.PresentIDs)
 	if err != nil {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
 	obtainPresent := []*UserPresent{}
-	if err = h.DB.Select(&obtainPresent, query, params...); err != nil {
+	if err = tx2.Select(&obtainPresent, query, params...); err != nil {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
 
 	if len(obtainPresent) == 0 {
+		err := tx2.Commit()
+		if err != nil {
+			return errorResponse(c, http.StatusInternalServerError, err)
+		}
+
 		return successResponse(c, &ReceivePresentResponse{
 			UpdatedResources: makeUpdatedResources(requestAt, nil, nil, nil, nil, nil, nil, []*UserPresent{}),
 		})
 	}
-
-	tx, err := h.DB.Beginx()
-	if err != nil {
-		return errorResponse(c, http.StatusInternalServerError, err)
-	}
-	defer tx.Rollback() //nolint:errcheck
 
 	obtainPresentIDs := make([]int64, len(obtainPresent))
 	for i := range obtainPresent {
@@ -1438,7 +1522,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
-	if _, err := tx.Exec(query, args...); err != nil {
+	if _, err := tx2.Exec(query, args...); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
@@ -1449,6 +1533,12 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		}
 	}
 
+	tx1, err := h.DB.Beginx()
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	defer tx1.Rollback() //nolint:errcheck
+
 	// カード所持情報のバリデーション
 
 	itemMasters := make([]*ItemMaster, 0)
@@ -1458,7 +1548,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		if err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
-		if err = tx.Select(&itemMasters, query, params...); err != nil {
+		if err = tx1.Select(&itemMasters, query, params...); err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 	}
@@ -1479,7 +1569,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 			// updateIsuCoin, _, err = h.obtainItem1(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
 			// updateIsuCoins = append(updateIsuCoins, updateIsuCoin)
 
-			_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+			_, _, _, err = h.obtainItem(tx1, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
 		case 2: // card(ハンマー)
 			var itemMaster *ItemMaster
 			exist := false
@@ -1491,7 +1581,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 			}
 			if exist {
 				var tmpCard UserCard
-				tmpCard, err = h.obtainItem2(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt, itemMaster)
+				tmpCard, err = h.obtainItem2(tx1, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt, itemMaster)
 				cards = append(cards, tmpCard)
 			} else {
 				err = ErrItemNotFound
@@ -1507,7 +1597,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 			}
 			if exist {
 				var tmpItem UserItem
-				tmpItem, err = h.obtainItem3And4(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt, itemMaster)
+				tmpItem, err = h.obtainItem3And4(tx1, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt, itemMaster)
 				items = append(items, tmpItem)
 			} else {
 				err = ErrItemNotFound
@@ -1526,7 +1616,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 
 	if len(cards) != 0 {
 		queryCards := "INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES (:id, :user_id, :card_id, :amount_per_sec, :level, :total_exp, :created_at, :updated_at)"
-		_, err = tx.NamedExec(queryCards, cards)
+		_, err = tx1.NamedExec(queryCards, cards)
 		if err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
@@ -1534,15 +1624,19 @@ func (h *Handler) receivePresent(c echo.Context) error {
 
 	if len(items) != 0 {
 		queryItems := "INSERT INTO user_items(id, user_id, item_id, item_type, amount, created_at, updated_at) VALUES (:id, :user_id, :item_id, :item_type, :amount, :created_at, :updated_at) ON DUPLICATE KEY UPDATE amount = VALUES(amount), updated_at = VALUES(updated_at);"
-		_, err = tx.NamedExec(queryItems, items)
+		_, err = tx1.NamedExec(queryItems, items)
 		if err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 	}
 
-	err = tx.Commit()
+	err = tx1.Commit()
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	err = tx2.Commit()
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err) // 起きたら本当はtxをrollbackする必要あり
 	}
 
 	return successResponse(c, &ReceivePresentResponse{

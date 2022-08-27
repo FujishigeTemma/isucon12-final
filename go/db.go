@@ -8,12 +8,12 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-func connectDB(batch bool) (*sqlx.DB, error) {
+func connectDB(batch bool, hostNum string) (*sqlx.DB, error) {
 	dsn := fmt.Sprintf(
 		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=%s&multiStatements=%t&interpolateParams=true",
 		getEnv("ISUCON_DB_USER", "isucon"),
 		getEnv("ISUCON_DB_PASSWORD", "isucon"),
-		getEnv("ISUCON_DB_HOST", "127.0.0.1"),
+		getEnv("ISUCON_DB_HOST"+hostNum, "127.0.0.1"),
 		getEnv("ISUCON_DB_PORT", "3306"),
 		getEnv("ISUCON_DB_NAME", "isucon"),
 		"Asia%2FTokyo",

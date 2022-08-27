@@ -221,6 +221,7 @@ type AdminListMasterResponse struct {
 // adminUpdateMaster マスタデータ更新
 // PUT /admin/master
 func (h *Handler) adminUpdateMaster(c echo.Context) error {
+	// TODO: ここクエリ全部並列化していい
 	tx, err := h.DB.Beginx()
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)

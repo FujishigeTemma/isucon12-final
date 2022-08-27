@@ -122,14 +122,15 @@ CREATE TABLE `present_all_masters` (
 /* 全員プレゼント履歴テーブル */
 
 CREATE TABLE `user_present_all_received_history` (
-  `id` bigint NOT NULL,
+  `id` bigint NOT NULL AUTO_INCREMENT,
   `user_id` bigint NOT NULL comment '受けとったユーザID',
   `present_all_id` bigint NOT NULL comment '全員プレゼントマスタのID',
   `received_at` bigint NOT NULL comment '受け取った日時',
   `created_at` bigint NOT NULL,
   `updated_at`bigint NOT NULL,
   `deleted_at` bigint default NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  INDEX user_id_present_all_id_idx (`user_id`, `present_all_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 /* ガチャマスタ */

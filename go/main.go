@@ -634,6 +634,90 @@ func (h *Handler) obtainItem(tx *sqlx.Tx, userID, itemID int64, itemType int, ob
 	return obtainCoins, obtainCards, obtainItems, nil
 }
 
+type UpdateIcuCoin struct {
+	ID      int64 `json:"id" db:"id"`
+	IsuCoin int64 `json:"isu_coin" db:"isu_coin"`
+}
+
+func (h *Handler) obtainItem1(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64) (UpdateIcuCoin, int64, error) {
+	// coin
+	user := new(User)
+	query := "SELECT * FROM users WHERE id=?"
+	if err := tx.Get(user, query, userID); err != nil {
+		if err == sql.ErrNoRows {
+			return UpdateIcuCoin{}, 0, ErrUserNotFound
+		}
+		return UpdateIcuCoin{}, 0, err
+	}
+
+	query = "UPDATE users SET isu_coin=? WHERE id=?"
+	totalCoin := user.IsuCoin + obtainAmount
+	if _, err := tx.Exec(query, totalCoin, user.ID); err != nil {
+		return UpdateIcuCoin{}, 0, err
+	}
+	return UpdateIcuCoin{ID: user.ID, IsuCoin: totalCoin}, obtainAmount, nil
+}
+
+// obtainItem アイテム付与処理
+func (h *Handler) obtainItem2(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64, item *ItemMaster) (UserCard, error) {
+	// card(ハンマー)
+	cID, err := h.generateID()
+	if err != nil {
+		return UserCard{}, err
+	}
+	card := UserCard{
+		ID:           cID,
+		UserID:       userID,
+		CardID:       item.ID,
+		AmountPerSec: *item.AmountPerSec,
+		Level:        1,
+		TotalExp:     0,
+		CreatedAt:    requestAt,
+		UpdatedAt:    requestAt,
+	}
+
+	return card, nil
+}
+
+// obtainItem アイテム付与処理
+func (h *Handler) obtainItem3And4(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64, item *ItemMaster) (UserItem, error) {
+	obtainItems := make([]*UserItem, 0)
+	// 強化素材
+
+	// 所持数取得
+	query := "SELECT * FROM user_items WHERE user_id=? AND item_id=?"
+	uitem := new(UserItem)
+	if err := tx.Get(uitem, query, userID, item.ID); err != nil {
+		if err != sql.ErrNoRows {
+			return UserItem{}, err
+		}
+		uitem = nil
+	}
+
+	if uitem == nil { // 新規作成
+		uitemID, err := h.generateID()
+		if err != nil {
+			return UserItem{}, err
+		}
+		uitem = &UserItem{
+			ID:        uitemID,
+			UserID:    userID,
+			ItemType:  item.ItemType,
+			ItemID:    item.ID,
+			Amount:    int(obtainAmount),
+			CreatedAt: requestAt,
+			UpdatedAt: requestAt,
+		}
+	} else { // 更新
+		uitem.Amount += int(obtainAmount)
+		uitem.UpdatedAt = requestAt
+	}
+
+	obtainItems = append(obtainItems, uitem)
+
+	return *uitem, nil
+}
+
 // initialize 初期化処理
 // POST /initialize
 func initialize(c echo.Context) error {
@@ -1342,14 +1426,77 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
+	itemIDs := []int64{}
+	for i := range obtainPresent {
+		if obtainPresent[i].ItemType == 2 || obtainPresent[i].ItemType == 3 || obtainPresent[i].ItemType == 4 {
+			itemIDs = append(itemIDs, obtainPresent[i].ItemID)
+		}
+	}
+
+	// カード所持情報のバリデーション
+
+	itemMasters := make([]*ItemMaster, 0)
+	if len(itemIDs) != 0 {
+		query = "SELECT * FROM item_masters WHERE id IN (?)"
+		query, params, err = sqlx.In(query, itemIDs)
+		if err != nil {
+			return errorResponse(c, http.StatusInternalServerError, err)
+		}
+		if err = tx.Select(&itemMasters, query, params...); err != nil {
+			return errorResponse(c, http.StatusInternalServerError, err)
+		}
+	}
+
 	// 配布処理
+	cards := []UserCard{}
+	items := []UserItem{}
+	// updateIsuCoins := []UpdateIcuCoin{}
 	for i := range obtainPresent {
 		obtainPresent[i].UpdatedAt = requestAt
 		obtainPresent[i].DeletedAt = &requestAt
 		v := obtainPresent[i]
 
 		// TODO: 5N+1くらいになってる
-		_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+		switch v.ItemType {
+		case 1: // coin
+			// var updateIsuCoin UpdateIcuCoin
+			// updateIsuCoin, _, err = h.obtainItem1(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+			// updateIsuCoins = append(updateIsuCoins, updateIsuCoin)
+
+			_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+		case 2: // card(ハンマー)
+			var itemMaster *ItemMaster
+			exist := false
+			for j := range itemMasters {
+				if itemMasters[j].ID == v.ItemID && itemMasters[j].ItemType == v.ItemType {
+					itemMaster = itemMasters[j]
+					exist = true
+				}
+			}
+			if exist {
+				var tmpCard UserCard
+				tmpCard, err = h.obtainItem2(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt, itemMaster)
+				cards = append(cards, tmpCard)
+			} else {
+				err = ErrItemNotFound
+			}
+		case 3, 4: // 強化素材
+			var itemMaster *ItemMaster
+			exist := false
+			for j := range itemMasters {
+				if itemMasters[j].ID == v.ItemID && itemMasters[j].ItemType == v.ItemType {
+					itemMaster = itemMasters[j]
+					exist = true
+				}
+			}
+			if exist {
+				var tmpItem UserItem
+				tmpItem, err = h.obtainItem3And4(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt, itemMaster)
+				items = append(items, tmpItem)
+			} else {
+				err = ErrItemNotFound
+			}
+		}
 		if err != nil {
 			if err == ErrUserNotFound || err == ErrItemNotFound {
 				return errorResponse(c, http.StatusNotFound, err)
@@ -1357,6 +1504,22 @@ func (h *Handler) receivePresent(c echo.Context) error {
 			if err == ErrInvalidItemType {
 				return errorResponse(c, http.StatusBadRequest, err)
 			}
+			return errorResponse(c, http.StatusInternalServerError, err)
+		}
+	}
+
+	if len(cards) != 0 {
+		queryCards := "INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES (:id, :user_id, :card_id, :amount_per_sec, :level, :total_exp, :created_at, :updated_at)"
+		_, err = tx.NamedExec(queryCards, cards)
+		if err != nil {
+			return errorResponse(c, http.StatusInternalServerError, err)
+		}
+	}
+
+	if len(items) != 0 {
+		queryItems := "INSERT INTO user_items(id, user_id, item_id, item_type, amount, created_at, updated_at) VALUES (:id, :user_id, :item_id, :item_type, :amount, :created_at, :updated_at) ON DUPLICATE KEY UPDATE amount = VALUES(amount), updated_at = VALUES(updated_at);"
+		_, err = tx.NamedExec(queryItems, items)
+		if err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 	}

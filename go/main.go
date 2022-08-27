@@ -634,6 +634,83 @@ func (h *Handler) obtainItem(tx *sqlx.Tx, userID, itemID int64, itemType int, ob
 	return obtainCoins, obtainCards, obtainItems, nil
 }
 
+// obtainItem アイテム付与処理
+func (h *Handler) obtainItem2(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64) (UserCard, error) {
+	// card(ハンマー)
+
+	query := "SELECT * FROM item_masters WHERE id=? AND item_type=?"
+	item := new(ItemMaster)
+	if err := tx.Get(item, query, itemID, itemType); err != nil {
+		if err == sql.ErrNoRows {
+			return UserCard{}, ErrItemNotFound
+		}
+		return UserCard{}, err
+	}
+
+	cID, err := h.generateID()
+	if err != nil {
+		return UserCard{}, err
+	}
+	card := UserCard{
+		ID:           cID,
+		UserID:       userID,
+		CardID:       item.ID,
+		AmountPerSec: *item.AmountPerSec,
+		Level:        1,
+		TotalExp:     0,
+		CreatedAt:    requestAt,
+		UpdatedAt:    requestAt,
+	}
+
+	return card, nil
+}
+
+// obtainItem アイテム付与処理
+func (h *Handler) obtainItem3And4(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64) (UserItem, error) {
+	obtainItems := make([]*UserItem, 0)
+	// 強化素材
+	query := "SELECT * FROM item_masters WHERE id=? AND item_type=?"
+	item := new(ItemMaster)
+	if err := tx.Get(item, query, itemID, itemType); err != nil {
+		if err == sql.ErrNoRows {
+			return UserItem{}, ErrItemNotFound
+		}
+		return UserItem{}, err
+	}
+	// 所持数取得
+	query = "SELECT * FROM user_items WHERE user_id=? AND item_id=?"
+	uitem := new(UserItem)
+	if err := tx.Get(uitem, query, userID, item.ID); err != nil {
+		if err != sql.ErrNoRows {
+			return UserItem{}, err
+		}
+		uitem = nil
+	}
+
+	if uitem == nil { // 新規作成
+		uitemID, err := h.generateID()
+		if err != nil {
+			return UserItem{}, err
+		}
+		uitem = &UserItem{
+			ID:        uitemID,
+			UserID:    userID,
+			ItemType:  item.ItemType,
+			ItemID:    item.ID,
+			Amount:    int(obtainAmount),
+			CreatedAt: requestAt,
+			UpdatedAt: requestAt,
+		}
+	} else { // 更新
+		uitem.Amount += int(obtainAmount)
+		uitem.UpdatedAt = requestAt
+	}
+
+	obtainItems = append(obtainItems, uitem)
+
+	return *uitem, nil
+}
+
 // initialize 初期化処理
 // POST /initialize
 func initialize(c echo.Context) error {
@@ -1339,13 +1416,28 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	}
 
 	// 配布処理
+	cards := []UserCard{}
+	items := []UserItem{}
 	for i := range obtainPresent {
 		obtainPresent[i].UpdatedAt = requestAt
 		obtainPresent[i].DeletedAt = &requestAt
 		v := obtainPresent[i]
 
 		// TODO: 5N+1くらいになってる
+
 		_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+		switch v.ItemType {
+		case 1: // coin
+			_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+		case 2: // card(ハンマー)
+			var tmpCard UserCard
+			tmpCard, err = h.obtainItem2(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+			cards = append(cards, tmpCard)
+		case 3, 4: // 強化素材
+			var tmpItem UserItem
+			tmpItem, err = h.obtainItem3And4(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+			items = append(items, tmpItem)
+		}
 		if err != nil {
 			if err == ErrUserNotFound || err == ErrItemNotFound {
 				return errorResponse(c, http.StatusNotFound, err)
@@ -1355,6 +1447,18 @@ func (h *Handler) receivePresent(c echo.Context) error {
 			}
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
+	}
+
+	queryCards := "INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES (:id, :user_id, :card_id, :amount_per_sec, :level, :total_exp, :created_at, :updated_at)"
+	_, err = tx.NamedExec(queryCards, cards)
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+
+	queryItems := "INSERT INTO user_items(id, user_id, item_id, item_type, amount, created_at, updated_at) VALUES (:id, :user_id, :item_id, :item_type, :amount, :created_at, :updated_at) ON DUPLICATE KEY UPDATE amount = VALUES(amount), updated_at = VALUES(updated_at);"
+	_, err = tx.NamedExec(queryItems, items)
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
 	err = tx.Commit()

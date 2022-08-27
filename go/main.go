@@ -1435,7 +1435,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	query = "SELECT * FROM item_masters WHERE id IN (?)"
 	query, params, err = sqlx.In(query, itemIDs)
 	if err != nil {
-		return errorResponse(c, http.StatusBadRequest, err)
+		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 	itemMasters := make([]*ItemMaster, 0)
 	if err = tx.Select(&itemMasters, query, params...); err != nil {

@@ -740,19 +740,9 @@ func (h *Handler) obtainItem2(tx *sqlx.Tx, userID, itemID int64, itemType int, o
 }
 
 // obtainItem アイテム付与処理
-func (h *Handler) obtainItem3And4(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64, item *ItemMaster) (UserItem, error) {
+func (h *Handler) obtainItem3And4(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64, item *ItemMaster, uitem *UserItem) (UserItem, error) {
 	obtainItems := make([]*UserItem, 0)
 	// 強化素材
-
-	// 所持数取得
-	query := "SELECT * FROM user_items WHERE user_id=? AND item_id=?"
-	uitem := new(UserItem)
-	if err := tx.Get(uitem, query, userID, item.ID); err != nil {
-		if err != sql.ErrNoRows {
-			return UserItem{}, err
-		}
-		uitem = nil
-	}
 
 	if uitem == nil { // 新規作成
 		uitemID, err := h.generateID()
@@ -1634,6 +1624,32 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		}
 	}
 
+	type Temp struct {
+		UserID int64
+		ItemID int64
+	}
+	temps := []Temp{}
+	for i := range obtainPresent {
+		if obtainPresent[i].ItemType == 3 || obtainPresent[i].ItemType == 4 {
+			temps = append(temps, Temp{UserID: obtainPresent[i].UserID, ItemID: obtainPresent[i].ItemID})
+		}
+	}
+	usersItems := make([]*UserItem, 0)
+	if len(temps) != 0 {
+		queryTemp := "SELECT * FROM user_items WHERE (user_id, item_id) IN ("
+		for i := range temps {
+			queryTemp += "(" + strconv.Itoa(int(temps[i].UserID)) + ", " + strconv.Itoa(int(temps[i].ItemID)) + ")"
+			if len(temps)-1 != i {
+				queryTemp += ","
+			}
+		}
+		queryTemp += ")"
+		err = tx1.Select(&usersItems, queryTemp)
+		if err != nil {
+			return errorResponse(c, http.StatusInternalServerError, err)
+		}
+	}
+
 	// 配布処理
 	cards := []UserCard{}
 	items := []UserItem{}
@@ -1678,6 +1694,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 			}
 		case 3, 4: // 強化素材
 			var itemMaster *ItemMaster
+			var usersItem *UserItem
 			exist := false
 			for j := range itemMasters {
 				if itemMasters[j].ID == v.ItemID && itemMasters[j].ItemType == v.ItemType {
@@ -1685,9 +1702,14 @@ func (h *Handler) receivePresent(c echo.Context) error {
 					exist = true
 				}
 			}
+			for j := range usersItems {
+				if usersItems[j].ItemID == v.ItemID && usersItems[j].UserID == v.UserID {
+					usersItem = usersItems[j]
+				}
+			}
 			if exist {
 				var tmpItem UserItem
-				tmpItem, err = h.obtainItem3And4(tx1, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt, itemMaster)
+				tmpItem, err = h.obtainItem3And4(tx1, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt, itemMaster, usersItem)
 				items = append(items, tmpItem)
 			} else {
 				err = ErrItemNotFound

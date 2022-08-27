@@ -1975,7 +1975,7 @@ func (h *Handler) addExpToCard(c echo.Context) error {
 		ID:               uc.ID,
 		UserID:           userID,
 		CardID:           cardID,
-		AmountPerSec:     *im.AmountPerSec,
+		AmountPerSec:     uc.AmountPerSec,
 		Level:            uc.Level,
 		TotalExp:         int(uc.TotalExp),
 		BaseAmountPerSec: *im.AmountPerSec,

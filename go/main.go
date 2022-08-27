@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	cmap "github.com/orcaman/concurrent-map/v2"
 	"io"
+	"log"
 	"math"
 	"math/rand"
 	"net"
@@ -16,6 +16,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	cmap "github.com/orcaman/concurrent-map/v2"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
@@ -45,6 +47,8 @@ var (
 
 	nextBaseID int64 = 100000000000
 	serverNum  int   = 1
+
+	userDeckCache = cmap.New[UserDeck]()
 )
 
 const (
@@ -57,6 +61,17 @@ const (
 type Handler struct {
 	DB        *sqlx.DB
 	PresentDB *sqlx.DB
+}
+
+func initializeUserDeckCache(h *Handler) {
+	decks := []UserDeck{}
+	query := "SELECT * FROM user_decks WHERE deleted_at IS NULL"
+	if err := h.DB.Select(decks, query); err != nil {
+		log.Fatalln(err)
+	}
+	for i := range decks {
+		userDeckCache.Set(strconv.Itoa(int(decks[i].UserID)), decks[i])
+	}
 }
 
 func main() {
@@ -971,6 +986,7 @@ func (h *Handler) createUser(c echo.Context) error {
 	if _, err := tx.Exec(query, initDeck.ID, initDeck.UserID, initDeck.CardID1, initDeck.CardID2, initDeck.CardID3, initDeck.CreatedAt, initDeck.UpdatedAt); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
+	userDeckCache.Set(strconv.Itoa(int(user.ID)), *initDeck)
 
 	txPresent, err := h.PresentDB.Beginx()
 	if err != nil {
@@ -2085,6 +2101,7 @@ func (h *Handler) updateDeck(c echo.Context) error {
 	if _, err = tx.Exec(query, requestAt, requestAt, userID); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
+	userDeckCache.Remove(strconv.Itoa(int(userID)))
 
 	udID, err := h.generateID()
 	if err != nil {
@@ -2161,13 +2178,9 @@ func (h *Handler) reward(c echo.Context) error {
 	}
 
 	// 使っているデッキの取得
-	deck := new(UserDeck)
-	query = "SELECT * FROM user_decks WHERE user_id=? AND deleted_at IS NULL"
-	if err = h.DB.Get(deck, query, userID); err != nil {
-		if err == sql.ErrNoRows {
-			return errorResponse(c, http.StatusNotFound, err)
-		}
-		return errorResponse(c, http.StatusInternalServerError, err)
+	deck, ok := userDeckCache.Get(strconv.Itoa(int(userID)))
+	if !ok {
+		return errorResponse(c, http.StatusNotFound, err)
 	}
 
 	cards := make([]*UserCard, 0)
@@ -2219,18 +2232,14 @@ func (h *Handler) home(c echo.Context) error {
 	}
 
 	// 装備情報
-	deck := new(UserDeck)
-	query := "SELECT * FROM user_decks WHERE user_id=? AND deleted_at IS NULL"
-	if err = h.DB.Get(deck, query, userID); err != nil {
-		if err != sql.ErrNoRows {
-			return errorResponse(c, http.StatusInternalServerError, err)
-		}
-		deck = nil
+	deck, ok := userDeckCache.Get(strconv.Itoa(int(userID)))
+	if !ok {
+		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
 	// 生産性
 	cards := make([]*UserCard, 0)
-	if deck != nil {
+	if true {
 		cardIds := []int64{deck.CardID1, deck.CardID2, deck.CardID3}
 		query, params, err := sqlx.In("SELECT * FROM user_cards WHERE id IN (?)", cardIds)
 		if err != nil {
@@ -2247,7 +2256,7 @@ func (h *Handler) home(c echo.Context) error {
 
 	// 経過時間
 	user := new(User)
-	query = "SELECT * FROM users WHERE id=?"
+	query := "SELECT * FROM users WHERE id=?"
 	if err = h.DB.Get(user, query, userID); err != nil {
 		if err == sql.ErrNoRows {
 			return errorResponse(c, http.StatusNotFound, ErrUserNotFound)
@@ -2259,7 +2268,7 @@ func (h *Handler) home(c echo.Context) error {
 	return successResponse(c, &HomeResponse{
 		Now:               requestAt,
 		User:              user,
-		Deck:              deck,
+		Deck:              &deck,
 		TotalAmountPerSec: totalAmountPerSec,
 		PastTime:          pastTime,
 	})

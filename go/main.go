@@ -1625,7 +1625,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	usersExists := make([]*User, 0)
 	if len(userIDs) != 0 {
 		query = "SELECT * FROM users WHERE id IN (?)"
-		query, params, err = sqlx.In(query, itemIDs)
+		query, params, err = sqlx.In(query, userIDs)
 		if err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}

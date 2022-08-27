@@ -659,7 +659,7 @@ func (h *Handler) obtainItem1(tx *sqlx.Tx, userID, itemID int64, itemType int, o
 }
 
 // obtainItem アイテム付与処理
-func (h *Handler) obtainItem2(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64, item ItemMaster) (UserCard, error) {
+func (h *Handler) obtainItem2(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64, item &ItemMaster) (UserCard, error) {
 	// card(ハンマー)
 	cID, err := h.generateID()
 	if err != nil {
@@ -680,7 +680,7 @@ func (h *Handler) obtainItem2(tx *sqlx.Tx, userID, itemID int64, itemType int, o
 }
 
 // obtainItem アイテム付与処理
-func (h *Handler) obtainItem3And4(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64, item ItemMaster) (UserItem, error) {
+func (h *Handler) obtainItem3And4(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64, item &ItemMaster) (UserItem, error) {
 	obtainItems := make([]*UserItem, 0)
 	// 強化素材
 
@@ -1436,19 +1436,10 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	if err != nil {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
-	itemMasters := make([]ItemMaster, 0)
+	itemMasters := make([]*ItemMaster, 0)
 	if err = tx.Select(&itemMasters, query, params...); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
-
-	// query := "SELECT * FROM item_masters WHERE id=? AND item_type=?"
-	// item := new(ItemMaster)
-	// if err := tx.Get(item, query, itemID, itemType); err != nil {
-	// 	if err == sql.ErrNoRows {
-	// 		return UserItem{}, ErrItemNotFound
-	// 	}
-	// 	return UserItem{}, err
-	// }
 
 	// 配布処理
 	cards := []UserCard{}

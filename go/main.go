@@ -114,7 +114,7 @@ func main() {
 	// setting server
 	e.Server.Addr = fmt.Sprintf(":%v", "8080")
 	h := &Handler{
-		DB: dbx1,
+		DB:        dbx1,
 		PresentDB: dbx2,
 	}
 
@@ -739,7 +739,7 @@ func runDBInit(hostNum string) ([]byte, error) {
 
 	cmd := exec.Command("/bin/sh", "-c", SQLDirectory+"init.sh")
 	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, "ISUCON_DB_HOST=" + host)
+	cmd.Env = append(cmd.Env, "ISUCON_DB_HOST="+host)
 	return cmd.CombinedOutput()
 }
 
@@ -1299,12 +1299,6 @@ func (h *Handler) drawGacha(c echo.Context) error {
 		}
 	}
 
-	tx, err := h.DB.Beginx()
-	if err != nil {
-		return errorResponse(c, http.StatusInternalServerError, err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-
 	// 直付与 => プレゼントに入れる
 	presents := make([]*UserPresent, 0, gachaCount)
 	for _, v := range result {
@@ -1324,17 +1318,31 @@ func (h *Handler) drawGacha(c echo.Context) error {
 			UpdatedAt:      requestAt,
 		}
 
-		// TODO
-
 		presents = append(presents, present)
 	}
 
-	if len(presents) != 0 {
-		queryPresents := "INSERT INTO user_presents(id, user_id, sent_at, item_type, item_id, amount, present_message, created_at, updated_at) VALUES (:id, :user_id, :sent_at, :item_type, :item_id, :amount, :present_message, :created_at, :updated_at)"
-		_, err = tx.NamedExec(queryPresents, presents)
-		if err != nil {
-			return errorResponse(c, http.StatusInternalServerError, err)
-		}
+	if len(presents) == 0 {
+		return successResponse(c, &DrawGachaResponse{
+			Presents: presents,
+		})
+	}
+
+	tx, err := h.DB.Beginx()
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	tx2, err := h.PresentDB.Beginx()
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	defer tx2.Rollback() //nolint:errcheck
+
+	queryPresents := "INSERT INTO user_presents(id, user_id, sent_at, item_type, item_id, amount, present_message, created_at, updated_at) VALUES (:id, :user_id, :sent_at, :item_type, :item_id, :amount, :present_message, :created_at, :updated_at)"
+	_, err = tx2.NamedExec(queryPresents, presents)
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
 	// isuconをへらす
@@ -1347,6 +1355,10 @@ func (h *Handler) drawGacha(c echo.Context) error {
 	err = tx.Commit()
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+	err = tx2.Commit()
+	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err) // 起きたら本当はtxをrollbackする必要あり
 	}
 
 	return successResponse(c, &DrawGachaResponse{

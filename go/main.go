@@ -67,7 +67,7 @@ func initializeUserDeckCache(h *Handler) {
 	userDeckCache = cmap.New[UserDeck]()
 	decks := []UserDeck{}
 	query := "SELECT * FROM user_decks WHERE deleted_at IS NULL"
-	if err := h.DB.Select(decks, query); err != nil {
+	if err := h.DB.Select(&decks, query); err != nil {
 		log.Fatalln(err)
 	}
 	for i := range decks {

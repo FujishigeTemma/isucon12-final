@@ -1536,7 +1536,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	}
 
 	if len(updateIsuCoins) != 0 {
-		queryCoins := "INSERT INTO users(id, isu_coin) VALUES (:id, :isu_coin) ON DUPLICATE KEY UPDATE isu_coin = VALUES(isu_coin)"
+		queryCoins := "INSERT INTO users(id, isu_coin, last_activated_at, registered_at, last_getreward_at, created_at, updated_at) VALUES (:id, :isu_coin, :last_activated_at, :registered_at, :last_getreward_at, :created_at, :updated_at) ON DUPLICATE KEY UPDATE isu_coin = VALUES(isu_coin)"
 		_, err = tx.NamedExec(queryCoins, updateIsuCoins)
 		if err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)

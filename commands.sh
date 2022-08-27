@@ -12,7 +12,7 @@ function deploy () {
   done
 
   # build
-  (cd /home/isucon/webapp/go && go build -o app)
+  (cd /home/isucon/webapp/go && go build -o isuconquest)
 
   sudo systemctl daemon-reload
   sudo systemctl restart nginx

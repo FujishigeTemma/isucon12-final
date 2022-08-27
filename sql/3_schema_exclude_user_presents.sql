@@ -227,17 +227,11 @@ CREATE TABLE `user_sessions` (
 
 /* 更新処理について利用するone time tokenの管理 */
 CREATE TABLE `user_one_time_tokens` (
-  `id` bigint NOT NULL,
   `user_id` bigint NOT NULL,
-  `token` varchar(128) NOT NULL,
   `token_type` int(2) NOT NULL comment '1:ガチャ用、2:カード強化用',
-  `created_at` bigint NOT NULL,
-  `updated_at` bigint NOT NULL,
+  `token` varchar(128) NOT NULL,
   `expired_at` bigint NOT NULL,
-  `deleted_at` bigint default NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE uniq_token (`token`, `user_id`, `deleted_at`),
-  INDEX user_id_deleted_at (`user_id`, `deleted_at`)
+  PRIMARY KEY (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 /* 管理者権限のセッション管理 */

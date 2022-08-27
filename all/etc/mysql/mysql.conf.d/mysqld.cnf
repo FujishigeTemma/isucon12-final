@@ -28,8 +28,8 @@ user		= mysql
 #
 # Instead of skip-networking the default is now to listen only on
 # localhost which is more compatible and is not less secure.
-bind-address		= 127.0.0.1
-mysqlx-bind-address	= 127.0.0.1
+# bind-address		= 127.0.0.1
+# mysqlx-bind-address	= 127.0.0.1
 #
 # * Fine Tuning
 #
@@ -62,9 +62,9 @@ myisam-recover-options  = BACKUP
 log_error = /var/log/mysql/error.log
 #
 # Here you can see queries with especially long duration
-# slow_query_log		= 1
-# slow_query_log_file	= /var/log/mysql/mysql-slow.log
-# long_query_time = 2
+slow_query_log		= 1
+slow_query_log_file	= /var/log/mysql/mysql-slow.log
+long_query_time = 0
 # log-queries-not-using-indexes
 #
 # The following can be used as easy to replay backup logs or for replication.
@@ -73,7 +73,7 @@ log_error = /var/log/mysql/error.log
 # server-id		= 1
 # log_bin			= /var/log/mysql/mysql-bin.log
 # binlog_expire_logs_seconds	= 2592000
-max_binlog_size   = 100M
+# max_binlog_size   = 100M
 # binlog_do_db		= include_database_name
 # binlog_ignore_db	= include_database_name
 
@@ -116,5 +116,5 @@ innodb_flush_log_at_timeout = 3
 # バイナリログの無効化
 disable-log-bin = 1
 
-# (from MySQL 8.0.22) 
-# innodb_log_writer_threads = OFF
+# (from MySQL 8.0.22)
+innodb_log_writer_threads = OFF

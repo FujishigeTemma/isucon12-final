@@ -942,12 +942,13 @@ func (h *Handler) createUser(c echo.Context) error {
 	}
 
 	initCards := make([]*UserCard, 0, 3)
+	cards := []UserCard{}
 	for i := 0; i < 3; i++ {
 		cID, err := h.generateID()
 		if err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
-		card := &UserCard{
+		card := UserCard{
 			ID:           cID,
 			UserID:       user.ID,
 			CardID:       initCard.ID,
@@ -957,12 +958,14 @@ func (h *Handler) createUser(c echo.Context) error {
 			CreatedAt:    requestAt,
 			UpdatedAt:    requestAt,
 		}
+		cards = append(cards, card)
 		// TODO: bulk(3回しかたたかれてない)
-		query = "INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-		if _, err := tx.Exec(query, card.ID, card.UserID, card.CardID, card.AmountPerSec, card.Level, card.TotalExp, card.CreatedAt, card.UpdatedAt); err != nil {
-			return errorResponse(c, http.StatusInternalServerError, err)
-		}
-		initCards = append(initCards, card)
+		initCards = append(initCards, &card)
+	}
+
+	query = "INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES (:id, :user_id, :card_id, :amount_per_sec, :level, :total_exp, :created_at, :updated_at)"
+	if _, err := tx.NamedExec(query, cards); err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
 	deckID, err := h.generateID()

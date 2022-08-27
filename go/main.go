@@ -1925,7 +1925,6 @@ func noContentResponse(c echo.Context, status int) error {
 }
 
 // generateID uniqueなIDを生成する
-// TODO: 重そう
 func (h *Handler) generateID() (int64, error) {
 	nextBase := atomic.AddInt64(&nextBaseID, 1)
 	nextID := nextBase*10 + int64(serverNum)

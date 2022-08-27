@@ -124,6 +124,23 @@ func main() {
 	go pollDB(dbx2)
 	//
 
+	// initializes
+	{
+		// マスタ確認
+		query := "SELECT * FROM version_masters WHERE status=1"
+		if err := dbx.Get(masterVersion, query); err != nil && err != sql.ErrNoRows {
+			e.Logger.Fatalf("failed to read master vesrion: %w", err)
+		}
+		var sessions []Session
+		query = "SELECT * FROM user_sessions WHERE deleted_at IS NULL"
+		if err := dbx.Get(&sessions, query); err != nil {
+			e.Logger.Fatalf("failed to read sessions: %w", err)
+		}
+		for i := range sessions {
+			userSessions.Set(sessions[i].SessionID, sessions[i])
+		}
+	}
+
 	// 問題の切り分け用
 	http.DefaultTransport.(*http.Transport).MaxIdleConns = 0           // 無制限
 	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = 1024 // 0にすると2になっちゃう
@@ -226,6 +243,10 @@ func (h *Handler) apiMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
+// deletedAt == nil
+// initialized at main(), /initialize and updated at /user, /login
+var userSessions = cmap.New[Session]()
+
 // checkSessionMiddleware
 func (h *Handler) checkSessionMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -244,13 +265,9 @@ func (h *Handler) checkSessionMiddleware(next echo.HandlerFunc) echo.HandlerFunc
 			return errorResponse(c, http.StatusInternalServerError, ErrGetRequestTime)
 		}
 
-		userSession := new(Session)
-		query := "SELECT * FROM user_sessions WHERE session_id=? AND deleted_at IS NULL"
-		if err := h.DB.Get(userSession, query, sessID); err != nil {
-			if err == sql.ErrNoRows {
-				return errorResponse(c, http.StatusUnauthorized, ErrUnauthorized)
-			}
-			return errorResponse(c, http.StatusInternalServerError, err)
+		userSession, exist := userSessions.Get(sessID)
+		if !exist {
+			return errorResponse(c, http.StatusUnauthorized, ErrUnauthorized)
 		}
 
 		if userSession.UserID != userID {
@@ -258,10 +275,15 @@ func (h *Handler) checkSessionMiddleware(next echo.HandlerFunc) echo.HandlerFunc
 		}
 
 		if userSession.ExpiredAt < requestAt {
-			query = "UPDATE user_sessions SET deleted_at=? WHERE session_id=?"
-			if _, err = h.DB.Exec(query, requestAt, sessID); err != nil {
-				return errorResponse(c, http.StatusInternalServerError, err)
-			}
+			// async update
+			go func() {
+				query := "UPDATE user_sessions SET deleted_at=? WHERE session_id=?"
+				if _, err = h.DB.Exec(query, requestAt, sessID); err != nil {
+					c.Logger().Errorf("%w", err)
+					//return errorResponse(c, http.StatusInternalServerError, err)
+				}
+			}()
+			userSessions.Remove(sessID)
 			return errorResponse(c, http.StatusUnauthorized, ErrExpiredSession)
 		}
 
@@ -808,13 +830,26 @@ func initialize(c echo.Context) error {
 		}
 	}()
 
-	// マスタ確認
-	query := "SELECT * FROM version_masters WHERE status=1"
-	if err := dbx.Get(masterVersion, query); err != nil {
-		if err == sql.ErrNoRows {
-			return errorResponse(c, http.StatusNotFound, fmt.Errorf("active master version is not found"))
+	// initialize cache
+	{
+		// マスタ確認
+		query := "SELECT * FROM version_masters WHERE status=1"
+		if err := dbx.Get(masterVersion, query); err != nil {
+			if err == sql.ErrNoRows {
+				return errorResponse(c, http.StatusNotFound, fmt.Errorf("active master version is not found"))
+			}
+			return errorResponse(c, http.StatusInternalServerError, err)
 		}
-		return errorResponse(c, http.StatusInternalServerError, err)
+		// userSession
+		var sessions []Session
+		query = "SELECT * FROM user_sessions WHERE deleted_at IS NULL"
+		if err := dbx.Get(&sessions, query); err != nil {
+			return errorResponse(c, http.StatusInternalServerError, err)
+		}
+		userSessions.Clear()
+		for i := range sessions {
+			userSessions.Set(sessions[i].SessionID, sessions[i])
+		}
 	}
 
 	return successResponse(c, &InitializeResponse{
@@ -975,10 +1010,15 @@ func (h *Handler) createUser(c echo.Context) error {
 		UpdatedAt: requestAt,
 		ExpiredAt: requestAt + 86400,
 	}
-	query = "INSERT INTO user_sessions(id, user_id, session_id, created_at, updated_at, expired_at) VALUES (?, ?, ?, ?, ?, ?)"
-	if _, err = tx.Exec(query, sess.ID, sess.UserID, sess.SessionID, sess.CreatedAt, sess.UpdatedAt, sess.ExpiredAt); err != nil {
-		return errorResponse(c, http.StatusInternalServerError, err)
-	}
+	userSessions.Set(sessID, *sess)
+	// async insert
+	go func() {
+		query = "INSERT INTO user_sessions(id, user_id, session_id, created_at, updated_at, expired_at) VALUES (?, ?, ?, ?, ?, ?)"
+		if _, err = tx.Exec(query, sess.ID, sess.UserID, sess.SessionID, sess.CreatedAt, sess.UpdatedAt, sess.ExpiredAt); err != nil {
+			c.Logger().Errorf("%w\n", err)
+			//return errorResponse(c, http.StatusInternalServerError, err)
+		}
+	}()
 
 	err = tx.Commit()
 	if err != nil {
@@ -1057,11 +1097,15 @@ func (h *Handler) login(c echo.Context) error {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// sessionを更新
-	query = "UPDATE user_sessions SET deleted_at=? WHERE user_id=? AND deleted_at IS NULL"
-	if _, err = tx.Exec(query, requestAt, req.UserID); err != nil {
-		return errorResponse(c, http.StatusInternalServerError, err)
-	}
+	// async update
+	go func() {
+		// 以前のsessionを破棄(cacheは最後の値で更新すれば良い)
+		query = "UPDATE user_sessions SET deleted_at=? WHERE user_id=? AND deleted_at IS NULL"
+		if _, err = tx.Exec(query, requestAt, req.UserID); err != nil {
+			c.Logger().Errorf("%w\n", err)
+			//return errorResponse(c, http.StatusInternalServerError, err)
+		}
+	}()
 	sID, err := h.generateID()
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
@@ -1078,10 +1122,15 @@ func (h *Handler) login(c echo.Context) error {
 		UpdatedAt: requestAt,
 		ExpiredAt: requestAt + 86400,
 	}
-	query = "INSERT INTO user_sessions(id, user_id, session_id, created_at, updated_at, expired_at) VALUES (?, ?, ?, ?, ?, ?)"
-	if _, err = tx.Exec(query, sess.ID, sess.UserID, sess.SessionID, sess.CreatedAt, sess.UpdatedAt, sess.ExpiredAt); err != nil {
-		return errorResponse(c, http.StatusInternalServerError, err)
-	}
+	userSessions.Set(sessID, *sess)
+	// async insert
+	go func() {
+		query = "INSERT INTO user_sessions(id, user_id, session_id, created_at, updated_at, expired_at) VALUES (?, ?, ?, ?, ?, ?)"
+		if _, err = tx.Exec(query, sess.ID, sess.UserID, sess.SessionID, sess.CreatedAt, sess.UpdatedAt, sess.ExpiredAt); err != nil {
+			c.Logger().Errorf("%w\n", err)
+			//return errorResponse(c, http.StatusInternalServerError, err)
+		}
+	}()
 
 	// すでにログインしているユーザはログイン処理をしない
 	if isCompleteTodayLogin(time.Unix(user.LastActivatedAt, 0), time.Unix(requestAt, 0)) {

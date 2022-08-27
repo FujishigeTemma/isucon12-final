@@ -133,7 +133,7 @@ func main() {
 		}
 		var sessions []Session
 		query = "SELECT * FROM user_sessions WHERE deleted_at IS NULL"
-		if err := dbx.Get(&sessions, query); err != nil {
+		if err := dbx.Select(&sessions, query); err != nil {
 			e.Logger.Fatalf("failed to read sessions: %w", err)
 		}
 		for i := range sessions {
@@ -843,7 +843,7 @@ func initialize(c echo.Context) error {
 		// userSession
 		var sessions []Session
 		query = "SELECT * FROM user_sessions WHERE deleted_at IS NULL"
-		if err := dbx.Get(&sessions, query); err != nil {
+		if err := dbx.Select(&sessions, query); err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 		userSessions.Clear()

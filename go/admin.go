@@ -656,6 +656,9 @@ func (h *Handler) adminBanUser(c echo.Context) error {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
+	id := strconv.Itoa(int(userID))
+	isBannedCache.Set(id, true)
+
 	return successResponse(c, &AdminBanUserResponse{
 		User: user,
 	})

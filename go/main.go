@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	cmap "github.com/orcaman/concurrent-map/v2"
 	"io"
 	"math"
 	"math/rand"
@@ -315,16 +316,26 @@ func (h *Handler) checkViewerID(userID int64, viewerID string) error {
 	return nil
 }
 
+var isBannedCache = cmap.New[bool]()
+
 // checkBan
 func (h *Handler) checkBan(userID int64) (bool, error) {
+	id := strconv.Itoa(int(userID))
+
+	isBanned, exist := isBannedCache.Get(id)
+	if exist {
+		return isBanned, nil
+	}
 	banUser := new(UserBan)
 	query := "SELECT * FROM user_bans WHERE user_id=?"
 	if err := h.DB.Get(banUser, query, userID); err != nil {
 		if err == sql.ErrNoRows {
+			isBannedCache.Set(id, false)
 			return false, nil
 		}
 		return false, err
 	}
+	isBannedCache.Set(id, true)
 	return true, nil
 }
 

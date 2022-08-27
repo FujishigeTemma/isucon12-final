@@ -48,7 +48,7 @@ var (
 	nextBaseID int64 = 100000000000
 	serverNum  int   = 1
 
-	userDeckCache = cmap.New[UserDeck]()
+	userDeckCache cmap.ConcurrentMap[UserDeck]
 )
 
 const (
@@ -64,6 +64,7 @@ type Handler struct {
 }
 
 func initializeUserDeckCache(h *Handler) {
+	userDeckCache = cmap.New[UserDeck]()
 	decks := []UserDeck{}
 	query := "SELECT * FROM user_decks WHERE deleted_at IS NULL"
 	if err := h.DB.Select(decks, query); err != nil {
@@ -168,6 +169,8 @@ func main() {
 		DB:        dbx1,
 		PresentDB: dbx2,
 	}
+
+	initializeUserDeckCache(h)
 
 	// e.Use(middleware.CORS())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{}))

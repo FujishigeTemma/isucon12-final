@@ -1964,10 +1964,10 @@ func (h *Handler) addExpToCard(c echo.Context) error {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
-	query = "UPDATE user_items SET amount=?, updated_at=? WHERE id=?"
-	for _, v := range items {
-		// TODO: N+1
-		if _, err = tx.Exec(query, v.Amount-v.ConsumeAmount, requestAt, v.ID); err != nil {
+	if len(items) != 0 {
+		queryItems := "INSERT INTO user_items(id, user_id, item_id, item_type, amount, created_at, updated_at) VALUES (:id, :user_id, :item_id, :item_type, :amount, :created_at, :updated_at) ON DUPLICATE KEY UPDATE amount = VALUES(amount), updated_at = VALUES(updated_at);"
+		_, err = tx.NamedExec(queryItems, items)
+		if err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 	}

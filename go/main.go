@@ -158,7 +158,7 @@ func main() {
 
 		var userDevices []UserDevice
 		query = "SELECT * FROM user_devices"
-		if err := dbx1.Select(&userDevices, query); err != nil {
+		if err := dbx.Select(&userDevices, query); err != nil {
 		}
 		for i := range userDevices {
 			userDevicesSet.Set(getUserDevicesKey(userDevices[i].UserID, userDevices[i].PlatformID), struct{}{})
@@ -878,7 +878,7 @@ func initialize(c echo.Context) error {
 
 		var userDevices []UserDevice
 		query = "SELECT * FROM user_devices"
-		if err := dbx1.Select(&userDevices, query); err != nil {
+		if err := dbx.Select(&userDevices, query); err != nil {
 		}
 		userDevicesSet.Clear()
 		for i := range userDevices {

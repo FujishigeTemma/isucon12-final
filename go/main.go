@@ -487,8 +487,13 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 		}
 
 		// historyに入れる
+		// TODO: N+1
+		phID, err := h.generateID()
+		if err != nil {
+			return nil, err
+		}
 		history := &UserPresentAllReceivedHistory{
-			ID:           0,
+			ID:           phID,
 			UserID:       userID,
 			PresentAllID: np.ID,
 			ReceivedAt:   requestAt,

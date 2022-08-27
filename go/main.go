@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -69,7 +70,22 @@ func main() {
 		AllowHeaders: []string{"Content-Type", "x-master-version", "x-session"},
 	}))
 
-	var err error
+	socket_file := "/tmp/app.sock"
+	os.Remove(socket_file)
+
+	l, err := net.Listen("unix", socket_file)
+	if err != nil {
+		e.Logger.Fatal(err)
+	}
+
+	// go runユーザとnginxのユーザ（グループ）を同じにすれば777じゃなくてok
+	err = os.Chmod(socket_file, 0777)
+	if err != nil {
+		e.Logger.Fatal(err)
+	}
+
+	e.Listener = l
+
 	serverNumStr := getEnv("ISUCON_SERVER_NUM", "1")
 	serverNum, err = strconv.Atoi(serverNumStr)
 	if err != nil {

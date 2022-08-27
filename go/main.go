@@ -1437,7 +1437,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
 	itemMasters := make([]ItemMaster, 0)
-	if err = h.DB.Select(&itemMasters, query, params...); err != nil {
+	if err = tx.Select(&itemMasters, query, params...); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 

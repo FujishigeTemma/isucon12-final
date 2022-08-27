@@ -1419,6 +1419,8 @@ func (h *Handler) listPresent(c echo.Context) error {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
+	c.Logger().Print(presentCount, len(presentList), presentList)
+
 	isNext := false
 	if presentCount > (offset + PresentCountPerPage) {
 		isNext = true

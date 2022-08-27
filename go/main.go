@@ -620,8 +620,6 @@ func (h *Handler) obtainItem(tx *sqlx.Tx, userID, itemID int64, itemType int, ob
 	obtainCards := make([]*UserCard, 0)
 	obtainItems := make([]*UserItem, 0)
 
-	masterDBRWM.RLock()
-	defer masterDBRWM.RUnlock()
 	switch itemType {
 	case 1: // coin
 		user := new(User)
@@ -1252,8 +1250,7 @@ func (h *Handler) listGacha(c echo.Context) error {
 
 	gachaMasterList := []*GachaMaster{}
 	query := "SELECT * FROM gacha_masters WHERE start_at <= ? AND end_at >= ? ORDER BY display_order ASC"
-	masterDBRWM.RLock()
-	defer masterDBRWM.RUnlock()
+
 	err = h.MasterDB.Select(&gachaMasterList, query, requestAt, requestAt)
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
@@ -1389,8 +1386,6 @@ func (h *Handler) drawGacha(c echo.Context) error {
 		return errorResponse(c, http.StatusConflict, fmt.Errorf("not enough isucon"))
 	}
 
-	masterDBRWM.RLock()
-	defer masterDBRWM.RUnlock()
 	// gachaIDからガチャマスタの取得
 	query = "SELECT * FROM gacha_masters WHERE id=? AND start_at <= ? AND end_at >= ?"
 	gachaInfo := new(GachaMaster)
@@ -1647,19 +1642,18 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	}
 	defer tx1.Rollback() //nolint:errcheck
 
-	masterDBRWM.RLock()
 	// カード所持情報のバリデーション
 	itemMasters := make([]*ItemMaster, 0)
 	if len(itemIDs) != 0 {
 		query = "SELECT * FROM item_masters WHERE id IN (?)"
 		query, params, err = sqlx.In(query, itemIDs)
 		if err != nil {
-			masterDBRWM.RUnlock()
+
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 		if err = h.MasterDB.Select(&itemMasters, query, params...); err != nil {
 			// rollbacked
-			masterDBRWM.RUnlock()
+
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 	}
@@ -1954,8 +1948,6 @@ func (h *Handler) addExpToCard(c echo.Context) error {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
-	masterDBRWM.RLock()
-	defer masterDBRWM.RUnlock()
 	var im ItemMaster
 	if err = h.MasterDB.Get(&im, "SELECT * FROM item_masters WHERE id=?", uc.CardID); err != nil {
 		if err == sql.ErrNoRows {

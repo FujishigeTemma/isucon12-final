@@ -634,19 +634,33 @@ func (h *Handler) obtainItem(tx *sqlx.Tx, userID, itemID int64, itemType int, ob
 	return obtainCoins, obtainCards, obtainItems, nil
 }
 
-// obtainItem アイテム付与処理
-func (h *Handler) obtainItem2(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64) (UserCard, error) {
-	// card(ハンマー)
+type UpdateIcuCoin struct {
+	ID      int64 `json:"id" db:"id"`
+	IsuCoin int64 `json:"isu_coin" db:"isu_coin"`
+}
 
-	query := "SELECT * FROM item_masters WHERE id=? AND item_type=?"
-	item := new(ItemMaster)
-	if err := tx.Get(item, query, itemID, itemType); err != nil {
+func (h *Handler) obtainItem1(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64) (UpdateIcuCoin, int64, error) {
+	// coin
+	user := new(User)
+	query := "SELECT * FROM users WHERE id=?"
+	if err := tx.Get(user, query, userID); err != nil {
 		if err == sql.ErrNoRows {
-			return UserCard{}, ErrItemNotFound
+			return UpdateIcuCoin{}, 0, ErrUserNotFound
 		}
-		return UserCard{}, err
+		return UpdateIcuCoin{}, 0, err
 	}
 
+	query = "UPDATE users SET isu_coin=? WHERE id=?"
+	totalCoin := user.IsuCoin + obtainAmount
+	if _, err := tx.Exec(query, totalCoin, user.ID); err != nil {
+		return UpdateIcuCoin{}, 0, err
+	}
+	return UpdateIcuCoin{ID: user.ID, IsuCoin: totalCoin}, obtainAmount, nil
+}
+
+// obtainItem アイテム付与処理
+func (h *Handler) obtainItem2(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64, item ItemMaster) (UserCard, error) {
+	// card(ハンマー)
 	cID, err := h.generateID()
 	if err != nil {
 		return UserCard{}, err
@@ -666,19 +680,12 @@ func (h *Handler) obtainItem2(tx *sqlx.Tx, userID, itemID int64, itemType int, o
 }
 
 // obtainItem アイテム付与処理
-func (h *Handler) obtainItem3And4(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64) (UserItem, error) {
+func (h *Handler) obtainItem3And4(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64, item ItemMaster) (UserItem, error) {
 	obtainItems := make([]*UserItem, 0)
 	// 強化素材
-	query := "SELECT * FROM item_masters WHERE id=? AND item_type=?"
-	item := new(ItemMaster)
-	if err := tx.Get(item, query, itemID, itemType); err != nil {
-		if err == sql.ErrNoRows {
-			return UserItem{}, ErrItemNotFound
-		}
-		return UserItem{}, err
-	}
+
 	// 所持数取得
-	query = "SELECT * FROM user_items WHERE user_id=? AND item_id=?"
+	query := "SELECT * FROM user_items WHERE user_id=? AND item_id=?"
 	uitem := new(UserItem)
 	if err := tx.Get(uitem, query, userID, item.ID); err != nil {
 		if err != sql.ErrNoRows {
@@ -1415,9 +1422,38 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
+	itemIDs := []int64{}
+	for i := range obtainPresent {
+		if obtainPresent[i].ItemType == 2 || obtainPresent[i].ItemType == 3 || obtainPresent[i].ItemType == 4 {
+			itemIDs = append(itemIDs, obtainPresent[i].ItemID)
+		}
+	}
+
+	// カード所持情報のバリデーション
+
+	query = "SELECT * FROM item_masters WHERE id IN (?)"
+	query, params, err = sqlx.In(query, itemIDs)
+	if err != nil {
+		return errorResponse(c, http.StatusBadRequest, err)
+	}
+	itemMasters := make([]ItemMaster, 0)
+	if err = h.DB.Select(&itemMasters, query, params...); err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+
+	// query := "SELECT * FROM item_masters WHERE id=? AND item_type=?"
+	// item := new(ItemMaster)
+	// if err := tx.Get(item, query, itemID, itemType); err != nil {
+	// 	if err == sql.ErrNoRows {
+	// 		return UserItem{}, ErrItemNotFound
+	// 	}
+	// 	return UserItem{}, err
+	// }
+
 	// 配布処理
 	cards := []UserCard{}
 	items := []UserItem{}
+	updateIsuCoins := []UpdateIcuCoin{}
 	for i := range obtainPresent {
 		obtainPresent[i].UpdatedAt = requestAt
 		obtainPresent[i].DeletedAt = &requestAt
@@ -1426,15 +1462,41 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		// TODO: 5N+1くらいになってる
 		switch v.ItemType {
 		case 1: // coin
-			_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+			var updateIsuCoin UpdateIcuCoin
+			updateIsuCoin, _, err = h.obtainItem1(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+			updateIsuCoins = append(updateIsuCoins, updateIsuCoin)
 		case 2: // card(ハンマー)
-			var tmpCard UserCard
-			tmpCard, err = h.obtainItem2(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
-			cards = append(cards, tmpCard)
+			itemMaster := ItemMaster{}
+			exist := false
+			for j := range itemMasters {
+				if itemMasters[j].ID == v.ItemID && itemMasters[j].ItemType == v.ItemType {
+					itemMaster = itemMasters[j]
+					exist = true
+				}
+			}
+			if exist {
+				var tmpCard UserCard
+				tmpCard, err = h.obtainItem2(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt, itemMaster)
+				cards = append(cards, tmpCard)
+			} else {
+				err = ErrItemNotFound
+			}
 		case 3, 4: // 強化素材
-			var tmpItem UserItem
-			tmpItem, err = h.obtainItem3And4(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
-			items = append(items, tmpItem)
+			itemMaster := ItemMaster{}
+			exist := false
+			for j := range itemMasters {
+				if itemMasters[j].ID == v.ItemID && itemMasters[j].ItemType == v.ItemType {
+					itemMaster = itemMasters[j]
+					exist = true
+				}
+			}
+			if exist {
+				var tmpItem UserItem
+				tmpItem, err = h.obtainItem3And4(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt, itemMaster)
+				items = append(items, tmpItem)
+			} else {
+				err = ErrItemNotFound
+			}
 		}
 		if err != nil {
 			if err == ErrUserNotFound || err == ErrItemNotFound {
